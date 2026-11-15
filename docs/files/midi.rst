@@ -245,3 +245,59 @@ If you have a lot of rounding errors you should increase the time resolution
 with more ticks per quarter note, by setting MidiFile.ticks_per_beat to a
 large number. Typical values range from 96 to 480 but some use even more ticks
 per quarter note.
+
+
+Quantizing Notes
+----------------
+
+Recorded MIDI often has note start and end times slightly off the beat.
+:py:func:`quantize_notes` snaps every note on and note off (including
+zero-velocity ``note_on`` messages used as note offs) onto a subdivision
+grid while leaving all other messages -- tempo, time signature,
+controller and program changes, sysex and so on -- at their original
+absolute tick positions.
+
+The function takes the number of grid slots per beat (quarter note).
+For example, ``4`` produces a sixteenth-note grid and ``3`` an
+eighth-note triplet grid::
+
+    from mido import MidiFile, quantize_notes
+
+    mid = MidiFile('song.mid')
+    quantized = quantize_notes(mid, subdivision=4)
+    quantized.save('song_quantized.mid')
+
+The original file is never modified; a new ``MidiFile`` is returned.
+The same operation is available as a method::
+
+    quantized = mid.quantize_notes(subdivision=4)
+
+Swing
+^^^^^
+
+An optional ``swing`` argument shifts the second slot of every two-slot
+cell.  It is the fraction of the cell taken by the first slot, strictly
+between ``0`` and ``1``.  ``0.5`` (the default) is a straight grid,
+values above it delay the off-grid slot in the classic swing manner::
+
+    # Late swing: each pair of sixteenths plays as a long-short figure.
+    quantized = quantize_notes(mid, subdivision=4, swing=2 / 3)
+
+The swing phase restarts at every bar line, and the grid follows the
+file's time signature messages, so changing meters are handled bar by
+bar.
+
+Pairing and Timing Rules
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+* Note on and note off events are quantized independently, but a note
+  always keeps a strictly positive duration: if both endpoints land on
+  the same grid point, the note off is moved one tick later.
+* Overlapping notes with the same channel and note number are paired
+  last-in-first-out; zero-velocity ``note_on`` messages pair as note
+  offs.
+* The relative order of messages sharing a tick is preserved, and the
+  result never contains negative delta times.
+* By default an unpaired note on or note off raises ``ValueError``;
+  pass ``strict=False`` to leave unpaired notes at their original time
+  instead.

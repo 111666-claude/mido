@@ -437,6 +437,25 @@ class MidiFile:
             else:
                 yield msg
 
+    def quantize_notes(self, subdivision, swing=0.5, strict=True):
+        """Return a copy of the file with notes snapped to a time grid.
+
+        This is a convenience wrapper around
+        :func:`mido.midifiles.quantize.quantize_notes`.  Note on and
+        note off events are quantized independently onto a grid of
+        ``subdivision`` slots per beat, optionally with ``swing``,
+        while tempo, time signature, controller and all other
+        non-note events keep their original absolute tick positions.
+        The original file is not modified.
+
+        See :func:`mido.midifiles.quantize.quantize_notes` for the
+        full description of the parameters and the errors that may be
+        raised.
+        """
+        from .quantize import quantize_notes
+        return quantize_notes(
+            self, subdivision, swing=swing, strict=strict)
+
     def save(self, filename=None, file=None):
         """Save to a file.
 
