@@ -33,6 +33,7 @@ MIDI files:
     bpm2tempo()  -- convert beats per minute to MIDI file tempo
     tempo2bpm()  -- convert MIDI file tempo to beats per minute
     merge_tracks(tracks)  -- merge tracks into one track
+    merge_midifiles(primary, secondary)  -- merge two files by playback time
 
 SYX files:
 
@@ -114,6 +115,7 @@ from .midifiles import (
     MidiTrack,
     UnknownMetaMessage,
     bpm2tempo,
+    merge_midifiles,
     merge_tracks,
     second2tick,
     tempo2bpm,
@@ -127,11 +129,11 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
-    "KeySignatureError",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
     "MIN_PITCHWHEEL",
     "MIN_SONGPOS",
+    "KeySignatureError",
     "Message",
     "MetaMessage",
     "MidiFile",
@@ -140,6 +142,7 @@ __all__ = [
     "UnknownMetaMessage",
     "bpm2tempo",
     "format_as_string",
+    "merge_midifiles",
     "merge_tracks",
     "parse",
     "parse_all",
