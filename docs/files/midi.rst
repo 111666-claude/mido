@@ -73,6 +73,33 @@ pass ``meta_messages=True`` you will also get meta messages. These **cannot**
 be sent on ports, which is why they are ``off`` by default.
 
 
+Seeking to a Position
+---------------------
+
+To start playback somewhere in the middle of the song without playing
+through everything before it, seek to a position in seconds::
+
+    position = MidiFile('song.mid').seek(63.5)
+
+The returned ``PlaybackPosition`` has two attributes. ``events`` is the
+list of messages at and after the position in playback order, each with
+its ``time`` in seconds relative to the position (so you can sleep and
+send them as above). ``state`` is a ``ChannelState`` snapshot of every
+channel at the position, which you can use to restore already sounding
+notes, the sustain pedal and controller values before resuming::
+
+    for channel, note, velocity in position.state.active_notes():
+        port.send(Message('note_on', channel=channel,
+                          note=note, velocity=velocity))
+    for channel in range(16):
+        if position.state.is_sustained(channel):
+            port.send(Message('control_change', channel=channel,
+                              control=64, value=127))
+
+Tempo changes on any track are taken into account, and seeking never
+modifies the file, so it can be repeated any number of times.
+
+
 
 Creating a New File
 -------------------

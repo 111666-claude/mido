@@ -401,6 +401,33 @@ class MidiFile:
             if msg.type == 'set_tempo':
                 tempo = msg.tempo
 
+    def seek(self, seconds):
+        """Seek to a position in the song without playing through it.
+
+        ``seconds`` is a non-negative position in seconds from the
+        start of the song. Returns a ``PlaybackPosition`` with the
+        messages at and after the position (in playback order, with
+        times in seconds relative to the position) and a
+        ``ChannelState`` snapshot of every channel at the position,
+        so the caller can restore already sounding notes, the sustain
+        pedal and controller values before resuming playback.
+
+        Tempo changes on any track take effect in absolute tick
+        order. A message exactly at the position is included in the
+        events with ``time == 0`` and is not yet reflected in the
+        state. Seeking past the end returns no events and the final
+        state.
+
+        Seeking never modifies the file, its tracks or its messages,
+        so it can be repeated any number of times.
+
+        Raises ValueError if ``seconds`` is negative, and TypeError
+        for type 2 (asynchronous) files.
+        """
+        # Imported here to avoid a circular import at module level.
+        from .seek import seek
+        return seek(self, seconds)
+
     def play(self, meta_messages=False, now=time.time):
         """Play back all tracks.
 
