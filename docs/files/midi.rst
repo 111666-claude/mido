@@ -174,6 +174,60 @@ For a list of supported meta messages and their attributes, and also
 how to implement new meta messages, see :doc:`../meta_message_types`.
 
 
+RPN and NRPN Parameter Events
+-----------------------------
+
+Registered Parameter Numbers (RPNs) and Non-Registered Parameter Numbers
+(NRPNs) are encoded as sequences of Control Change messages rather than a
+single message. A selector pair (CC 101/100 for RPN, CC 99/98 for NRPN)
+chooses a parameter, after which Data Entry messages (CC 6/38) set its
+value and CC 96/97 increment or decrement it. Because these messages are
+spread across the track and interleaved with unrelated CCs, editing them
+by hand is error-prone.
+
+``mido`` can extract the sequences into structured events::
+
+    from mido import MidiFile, extract_parameter_events
+
+    mid = MidiFile('song.mid')
+    for event in extract_parameter_events(mid):
+        print(event.track, event.channel, event.tick,
+              event.kind, event.operation, event.number, event.value)
+
+Each :class:`~mido.ParameterEvent` carries the absolute tick, channel,
+parameter ``kind`` (``'rpn'`` or ``'nrpn'``), ``operation``
+(``'set'``, ``'increment'``, ``'decrement'`` or ``'null'``), the 14-bit
+parameter ``number`` and the value. ``set`` events record whether the
+value was encoded with 7 or 14 bits (``event.width``); the RPN null
+selector (127, 127) is reported as a ``'null'`` event and deselects the
+current parameter.
+
+Assembly state is kept separately per channel, so messages on different
+channels never interfere with each other. Half-finished selectors, data
+messages sent without a selection and ordinary CCs do not produce events
+and are left in the track untouched. A Data Entry MSB without a following
+LSB is reported as a 7-bit value.
+
+Edit the events and write them back with
+:func:`~mido.write_parameter_events`::
+
+    from mido import write_parameter_events
+
+    events = extract_parameter_events(mid)
+    edited = [
+        event.with_value(127) if event.operation == 'set' else event
+        for event in events
+    ]
+    write_parameter_events(mid, edited)
+    mid.save('song-edited.mid')
+
+Events replace exactly the CC messages they were assembled from, while
+every other message keeps its track, order and timing. A selector pair
+that served several data messages is emitted only once on write-back,
+matching the original file. Events created from scratch (without source
+messages) are inserted at their absolute tick.
+
+
 About the Time Attribute
 ------------------------
 
