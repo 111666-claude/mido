@@ -112,12 +112,16 @@ from .midifiles import (
     MetaMessage,
     MidiFile,
     MidiTrack,
+    MPENote,
+    MPEZone,
     UnknownMetaMessage,
     bpm2tempo,
+    extract_mpe_notes,
     merge_tracks,
     second2tick,
     tempo2bpm,
     tick2second,
+    write_mpe_notes,
 )
 from .parser import Parser, parse, parse_all
 from .syx import read_syx_file, write_syx_file
@@ -127,11 +131,13 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
-    "KeySignatureError",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
     "MIN_PITCHWHEEL",
     "MIN_SONGPOS",
+    "KeySignatureError",
+    "MPENote",
+    "MPEZone",
     "Message",
     "MetaMessage",
     "MidiFile",
@@ -139,6 +145,7 @@ __all__ = [
     "Parser",
     "UnknownMetaMessage",
     "bpm2tempo",
+    "extract_mpe_notes",
     "format_as_string",
     "merge_tracks",
     "parse",
@@ -152,6 +159,7 @@ __all__ = [
     "tempo2bpm",
     "tick2second",
     "version_info",
+    "write_mpe_notes",
     "write_syx_file",
 ]
 
