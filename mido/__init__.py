@@ -108,12 +108,17 @@ from .messages import (
     parse_string_stream,
 )
 from .midifiles import (
+    CURVES,
+    DEFAULT_MAX_EVENTS,
     KeySignatureError,
     MetaMessage,
     MidiFile,
     MidiTrack,
+    TempoRampError,
     UnknownMetaMessage,
+    add_tempo_ramp,
     bpm2tempo,
+    compute_tempo_ramp,
     merge_tracks,
     second2tick,
     tempo2bpm,
@@ -127,6 +132,8 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
+    "CURVES",
+    "DEFAULT_MAX_EVENTS",
     "KeySignatureError",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
@@ -137,8 +144,11 @@ __all__ = [
     "MidiFile",
     "MidiTrack",
     "Parser",
+    "TempoRampError",
     "UnknownMetaMessage",
+    "add_tempo_ramp",
     "bpm2tempo",
+    "compute_tempo_ramp",
     "format_as_string",
     "merge_tracks",
     "parse",

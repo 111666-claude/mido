@@ -189,6 +189,14 @@ Standard MIDI Files
 
 .. autofunction:: merge_tracks
 
+.. autofunction:: compute_tempo_ramp
+
+.. autofunction:: add_tempo_ramp
+
+.. autoexception:: TempoRampError
+
+.. autodata:: CURVES
+
 .. module:: mido.midifiles
 
 .. todo: Expose more of the internal API? (meta, tracks, units…)

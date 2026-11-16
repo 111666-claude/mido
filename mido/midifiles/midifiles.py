@@ -347,6 +347,23 @@ class MidiFile:
         del self.merged_track  # uncache merged track
         return track
 
+    def add_tempo_ramp(self, start_tick, end_tick, start_bpm, end_bpm,
+                       curve='linear', max_time_error=0.01, track=0,
+                       max_events=None):
+        """Insert a tempo ramp (accelerando or ritardando).
+
+        This is a thin wrapper around
+        :func:`mido.midifiles.tempo_ramp.add_tempo_ramp`; see that
+        function for the full description and the list of exceptions.
+        """
+        from .tempo_ramp import DEFAULT_MAX_EVENTS, add_tempo_ramp
+        if max_events is None:
+            max_events = DEFAULT_MAX_EVENTS
+        return add_tempo_ramp(
+            self, start_tick, end_tick, start_bpm, end_bpm,
+            curve=curve, max_time_error=max_time_error, track=track,
+            max_events=max_events)
+
     def _load(self, infile):
         if self.debug:
             infile = DebugFileWrapper(infile)
