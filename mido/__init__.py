@@ -108,12 +108,17 @@ from .messages import (
     parse_string_stream,
 )
 from .midifiles import (
+    END_REASON_END_OF_TRACK,
+    END_REASON_NOTE_OFF,
     KeySignatureError,
     MetaMessage,
     MidiFile,
     MidiTrack,
+    NoteTimeline,
+    SoundingNote,
     UnknownMetaMessage,
     bpm2tempo,
+    get_note_timeline,
     merge_tracks,
     second2tick,
     tempo2bpm,
@@ -127,6 +132,8 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
+    "END_REASON_END_OF_TRACK",
+    "END_REASON_NOTE_OFF",
     "KeySignatureError",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
@@ -136,10 +143,13 @@ __all__ = [
     "MetaMessage",
     "MidiFile",
     "MidiTrack",
+    "NoteTimeline",
     "Parser",
+    "SoundingNote",
     "UnknownMetaMessage",
     "bpm2tempo",
     "format_as_string",
+    "get_note_timeline",
     "merge_tracks",
     "parse",
     "parse_all",

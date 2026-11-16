@@ -189,6 +189,18 @@ Standard MIDI Files
 
 .. autofunction:: merge_tracks
 
+.. autofunction:: get_note_timeline
+
+.. autoclass:: NoteTimeline
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autoclass:: SoundingNote
+   :members:
+   :inherited-members:
+   :undoc-members:
+
 .. module:: mido.midifiles
 
 .. todo: Expose more of the internal API? (meta, tracks, units…)

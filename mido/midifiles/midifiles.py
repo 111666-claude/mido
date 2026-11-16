@@ -26,6 +26,7 @@ from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
+from .timeline import get_note_timeline
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
 
@@ -436,6 +437,23 @@ class MidiFile:
                 continue
             else:
                 yield msg
+
+    def note_timeline(self):
+        """Return the note sounding timeline of the file.
+
+        Each note is represented by a
+        :class:`~mido.midifiles.timeline.SoundingNote` with its track,
+        channel, pitch, velocity and absolute start and end times in
+        seconds. Sustain pedal (control change 64) is taken into
+        account, so a note keeps sounding until the key is released
+        and the pedal is up.
+
+        Only type 0 and type 1 files are supported. The file itself is
+        not modified. See
+        :func:`~mido.midifiles.timeline.get_note_timeline` for the
+        full pairing rules.
+        """
+        return get_note_timeline(self)
 
     def save(self, filename=None, file=None):
         """Save to a file.

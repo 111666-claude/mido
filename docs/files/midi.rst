@@ -146,6 +146,45 @@ a type 2 file will raise ``ValueError``, since it is impossible to
 compute the playback time of an asynchronous file.
 
 
+Note Sounding Timeline
+----------------------
+
+A piano roll should show how long a note actually *sounds*. This is not
+the same as the time between its ``note_on`` and ``note_off`` events:
+when the sustain pedal (control change 64) is held down, released notes
+keep sounding until the pedal comes back up.
+
+The ``note_timeline()`` method returns a :class:`~mido.NoteTimeline`
+with one :class:`~mido.SoundingNote` per note, including the track,
+channel, pitch, velocity and absolute start and end times in seconds::
+
+    for note in mid.note_timeline():
+        print(note.track, note.channel, note.note,
+              note.start_time, note.end_time, note.end_reason)
+
+The pairing rules are deterministic:
+
+* a ``note_on`` with velocity 0 is treated as a ``note_off``;
+* when identical notes (same channel and pitch) overlap, note-offs are
+  paired with the oldest note first (first in, first out);
+* while the sustain pedal is down (CC64 value 64..127), released notes
+  keep sounding and all end when the pedal is released (value 0..63).
+  Notes whose keys are still held are not affected;
+* notes still sounding when the file ends are closed at the end of the
+  file with ``end_reason`` set to ``'end_of_track'``;
+* note-offs without a matching note-on do not produce notes. They are
+  listed, with their time in seconds, in
+  ``NoteTimeline.unmatched_note_offs``.
+
+Times are computed from the delta times in ticks and every
+``set_tempo`` meta message in the file. The input ``MidiFile`` is not
+modified. Like ``length``, this is only supported for type 0 and type 1
+files; type 2 files raise ``ValueError``.
+
+The same data is available through the module-level
+:func:`~mido.get_note_timeline` function.
+
+
 Meta Messages
 -------------
 
