@@ -115,9 +115,11 @@ from .midifiles import (
     UnknownMetaMessage,
     bpm2tempo,
     merge_tracks,
+    read_cc14,
     second2tick,
     tempo2bpm,
     tick2second,
+    write_cc14,
 )
 from .parser import Parser, parse, parse_all
 from .syx import read_syx_file, write_syx_file
@@ -146,12 +148,14 @@ __all__ = [
     "parse_string",
     "parse_string_stream",
     "ports",
+    "read_cc14",
     "read_syx_file",
     "second2tick",
     "sockets",
     "tempo2bpm",
     "tick2second",
     "version_info",
+    "write_cc14",
     "write_syx_file",
 ]
 
