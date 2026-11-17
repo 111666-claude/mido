@@ -202,3 +202,37 @@ SYX
 .. autofunction:: read_syx_file
 
 .. autofunction:: write_syx_file
+
+
+MIDI Tuning Standard
+--------------------
+
+.. module:: mido.mts
+
+Real-time Single Note Tuning Change universal system exclusive
+messages, used to retune individual MIDI notes while a performance is
+running.
+
+.. autofunction:: single_note_tuning_change
+
+.. autofunction:: parse_single_note_tuning_change
+
+.. autofunction:: frequency_to_data
+
+.. autofunction:: data_to_frequency
+
+.. autoclass:: NoteTuning
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autoclass:: SingleNoteTuningChange
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autodata:: DEVICE_ID_BROADCAST
+
+.. autodata:: MAX_NOTE_CHANGES
+
+.. autodata:: NO_CHANGE_FREQUENCY

@@ -16,6 +16,15 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* New ``mido.mts`` module implementing the MIDI Tuning Standard
+  real-time Single Note Tuning Change system exclusive message, with
+  helpers to build and parse multi-note tuning changes (device ID,
+  tuning program and real-time/non-real-time selection) and to convert
+  between frequencies in hertz and the 3 byte MTS frequency data word.
+
 1.3.3 (2024-10-25)
 ^^^^^^^^^^^^^^^^^^
 

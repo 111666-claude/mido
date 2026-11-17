@@ -119,6 +119,17 @@ from .midifiles import (
     tempo2bpm,
     tick2second,
 )
+from .mts import (
+    DEVICE_ID_BROADCAST,
+    MAX_NOTE_CHANGES,
+    NO_CHANGE_FREQUENCY,
+    NoteTuning,
+    SingleNoteTuningChange,
+    data_to_frequency,
+    frequency_to_data,
+    parse_single_note_tuning_change,
+    single_note_tuning_change,
+)
 from .parser import Parser, parse, parse_all
 from .syx import read_syx_file, write_syx_file
 from .version import version_info
@@ -127,27 +138,36 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
-    "KeySignatureError",
+    "DEVICE_ID_BROADCAST",
+    "MAX_NOTE_CHANGES",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
     "MIN_PITCHWHEEL",
     "MIN_SONGPOS",
+    "NO_CHANGE_FREQUENCY",
+    "KeySignatureError",
     "Message",
     "MetaMessage",
     "MidiFile",
     "MidiTrack",
+    "NoteTuning",
     "Parser",
+    "SingleNoteTuningChange",
     "UnknownMetaMessage",
     "bpm2tempo",
+    "data_to_frequency",
     "format_as_string",
+    "frequency_to_data",
     "merge_tracks",
     "parse",
     "parse_all",
+    "parse_single_note_tuning_change",
     "parse_string",
     "parse_string_stream",
     "ports",
     "read_syx_file",
     "second2tick",
+    "single_note_tuning_change",
     "sockets",
     "tempo2bpm",
     "tick2second",
