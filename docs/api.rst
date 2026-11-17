@@ -194,6 +194,26 @@ Standard MIDI Files
 .. todo: Expose more of the internal API? (meta, tracks, units…)
 
 
+Chasing Controller State
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. module:: mido.midifiles.chase
+
+.. autofunction:: chase_events
+
+.. autofunction:: chase_state
+
+.. autoclass:: ChaseState
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autoclass:: ChannelChaseState
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+
 SYX
 ^^^
 

@@ -73,6 +73,78 @@ pass ``meta_messages=True`` you will also get meta messages. These **cannot**
 be sent on ports, which is why they are ``off`` by default.
 
 
+Chasing Events
+--------------
+
+When you start playback in the middle of a song, a synthesizer that has
+already played a previous section still holds that section's sound and
+controller values.  The messages that recreate the state at the new
+position are called *chase* events::
+
+    mid = MidiFile('song.mid')
+    for msg in mid.chase(7680):
+        port.send(msg)
+
+``chase()`` takes an absolute tick and returns a
+:class:`~mido.MidiTrack` of messages with ``time=0``.  They restore, per
+channel:
+
+* bank select (control change 0 and 32) and program change, in that
+  order,
+* the selected RPN or NRPN (including the 14-bit value last written to
+  it),
+* every ordinary controller at its latest value,
+* pitch bend, and
+* channel pressure (``aftertouch``).
+
+The state is collected from all tracks in absolute tick order.  Messages
+that share a tick are processed by track index and then by their position
+in the track, so conflicting events always resolve the same way: the
+last one wins.  Messages exactly at the target tick are **not** included;
+they belong to normal playback, together with any notes starting there.
+Notes that started before the target are never retriggered.  A target
+past the end of the file simply returns the final state.
+
+Unrelated or malformed control sequences are handled deterministically:
+
+* Files without ``set_tempo`` messages work normally; the chase is tick
+  based and does not use the tempo map.
+* Empty files and empty tracks produce no messages.
+* RPN and NRPN selectors are tracked separately per channel.  Neither
+  half of a selector pair takes effect until both halves have been seen,
+  and data entry messages without a complete selection are ignored.
+* Changing the selection or sending the RPN null selector (CC 101/100 =
+  127/127) discards a pending data entry.
+* Channel mode messages (CC 120..127) are commands rather than state and
+  are not chased.  Reset All Controllers (CC 121) sets modulation to 0,
+  expression to 127 and sustain to 0, centers pitch bend and zeroes
+  channel pressure; volume, pan, bank select, program and the RPN/NRPN
+  selection keep their values.
+* Type 2 (asynchronous) files raise ``TypeError`` because their tracks
+  have no common timeline.
+
+The same information is available as a structured object through
+``chase_state()``::
+
+    state = mid.chase_state(7680)
+    state[0].program
+    state[0].controllers[7]
+    state[0].selection
+    state[0].parameters
+
+``state.channels`` maps channel numbers to
+:class:`~mido.midifiles.chase.ChannelChaseState` objects and
+``state.messages()`` returns the same ``MidiTrack`` as ``chase()``.  The
+file itself is never modified, so chasing can be repeated any number of
+times.
+
+The chase functions are also available at module level::
+
+    from mido import chase_events, chase_state
+
+    chase_events(mid, 7680)
+    chase_state(mid, 7680)
+
 
 Creating a New File
 -------------------

@@ -16,6 +16,15 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* New ``MidiFile.chase()`` and ``mido.chase_events()`` reconstruct the
+  MIDI controller state at an absolute tick (bank select, program,
+  controllers, RPN/NRPN selection and value, pitch bend and channel
+  pressure) so playback can start in the middle of a song without
+  restarting notes.
+
 1.3.3 (2024-10-25)
 ^^^^^^^^^^^^^^^^^^
 

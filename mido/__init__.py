@@ -108,12 +108,16 @@ from .messages import (
     parse_string_stream,
 )
 from .midifiles import (
+    ChannelChaseState,
+    ChaseState,
     KeySignatureError,
     MetaMessage,
     MidiFile,
     MidiTrack,
     UnknownMetaMessage,
     bpm2tempo,
+    chase_events,
+    chase_state,
     merge_tracks,
     second2tick,
     tempo2bpm,
@@ -127,11 +131,13 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
-    "KeySignatureError",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
     "MIN_PITCHWHEEL",
     "MIN_SONGPOS",
+    "ChannelChaseState",
+    "ChaseState",
+    "KeySignatureError",
     "Message",
     "MetaMessage",
     "MidiFile",
@@ -139,6 +145,8 @@ __all__ = [
     "Parser",
     "UnknownMetaMessage",
     "bpm2tempo",
+    "chase_events",
+    "chase_state",
     "format_as_string",
     "merge_tracks",
     "parse",

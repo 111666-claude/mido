@@ -25,6 +25,7 @@ import time
 from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
+from .chase import chase_events, chase_state
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
@@ -400,6 +401,43 @@ class MidiFile:
 
             if msg.type == 'set_tempo':
                 tempo = msg.tempo
+
+    def chase(self, tick):
+        """Return messages that recreate the state at an absolute tick.
+
+        The returned :class:`~mido.midifiles.tracks.MidiTrack` contains
+        ``time=0`` messages that restore each channel's bank select,
+        program, controllers, RPN/NRPN selection and value, pitch bend
+        and channel pressure as they were just before ``tick``.  Notes
+        are never chased, so notes that started earlier are not
+        retriggered.
+
+        The state is collected from every track in absolute tick order;
+        messages on the same tick are processed by track index and then
+        by position in the track.  A message exactly at ``tick`` is not
+        included, since it belongs to normal playback.  A target past
+        the end of the file returns the final state.
+
+        Chasing never modifies the file, so it can be repeated any
+        number of times.  See :func:`mido.midifiles.chase.chase_events`
+        for the full rules.
+
+        Raises ValueError for a negative tick and TypeError for
+        non-integer ticks or type 2 (asynchronous) files.
+        """
+        return chase_events(self, tick)
+
+    def chase_state(self, tick):
+        """Return the channel state at an absolute tick.
+
+        Returns a :class:`mido.midifiles.chase.ChaseState` whose
+        ``channels`` dictionary holds one
+        :class:`mido.midifiles.chase.ChannelChaseState` per channel that
+        was touched before ``tick``.  The same rules as :meth:`chase`
+        apply.  ``state.messages()`` returns the equivalent message
+        sequence.
+        """
+        return chase_state(self, tick)
 
     def play(self, meta_messages=False, now=time.time):
         """Play back all tracks.
