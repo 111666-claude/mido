@@ -26,6 +26,7 @@ from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
+from .notes import get_note_intervals
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
 
@@ -333,6 +334,15 @@ class MidiFile:
     @merged_track.deleter
     def merged_track(self):
         self._merged_track = None
+
+    def note_intervals(self):
+        """Extract audible note intervals from the file.
+
+        Returns a list of Note namedtuples (channel, note, velocity,
+        start, end) in absolute ticks, honoring the sustain pedal
+        (CC 64). See mido.midifiles.notes for the exact rules.
+        """
+        return get_note_intervals(self)
 
     def add_track(self, name=None):
         """Add a new track to the file.
