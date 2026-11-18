@@ -146,6 +146,58 @@ a type 2 file will raise ``ValueError``, since it is impossible to
 compute the playback time of an asynchronous file.
 
 
+Type 2 Patterns
+---------------
+
+The tracks of a type 2 (asynchronous) file are independent patterns.
+A previewer that plays them one at a time needs their events without
+merging the tracks. The ``track_sequence()`` method returns a
+:class:`~mido.TrackSequence` for one track::
+
+    mid = MidiFile('patterns.mid')
+    sequence = mid.track_sequence(0)
+
+    sequence.length_ticks   # pattern length in ticks
+    sequence.length         # pattern length in seconds
+    for event in sequence:
+        print(event.tick, event.seconds, event.message)
+
+Each :class:`~mido.SequenceEvent` has the absolute tick and absolute
+time in seconds from the start of the pattern. ``message`` is an
+independent copy of the message; its ``time`` attribute is still the
+original delta time, so a sequence can also be used to inspect the
+track exactly as it is stored.
+
+The tracks do not share a timeline, so every track is converted with
+its own tempo map, built only from the ``set_tempo`` messages in that
+track. The default tempo of 500000 microseconds per beat applies before
+the first tempo change of a track. A ``set_tempo`` message is
+timestamped with the tempo that was in effect before it. The time
+division (``ticks_per_beat``) comes from the file header and is shared
+by all tracks.
+
+Meta messages (including ``end_of_track``) and SysEx messages are
+included, and messages that share a tick keep their order in the track.
+The file itself is never modified; calling ``save()`` afterwards
+produces the same data as before.
+
+An empty track gives a sequence with no events and a length of zero.
+A track index that is not an integer raises ``TypeError``; an index
+outside the file raises ``IndexError``. Calling ``track_sequence()``
+on a type 0 or type 1 file raises ``TypeError``, since those tracks
+share one timeline (use :meth:`~mido.MidiFile.__iter__` or ``length``
+instead).
+
+An invalid tempo (zero or negative) or a negative or non-integer delta
+time raises ``ValueError``. A delta time or accumulated absolute tick
+that does not fit in a MIDI variable-length quantity raises
+``SequenceTimeOverflow``, which is both an ``OverflowError`` and a
+``ValueError``.
+
+The same data is available through the module-level
+:func:`~mido.get_track_sequence` function.
+
+
 Meta Messages
 -------------
 

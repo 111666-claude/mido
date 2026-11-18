@@ -334,6 +334,32 @@ class MidiFile:
     def merged_track(self):
         self._merged_track = None
 
+    def track_sequence(self, track_index):
+        """Return the independent sequence view of one track.
+
+        This is only available for type 2 (asynchronous) files, whose
+        tracks are independent patterns that must not be merged. The
+        returned :class:`~mido.midifiles.sequences.TrackSequence`
+        contains one event per message with the absolute tick and
+        absolute time in seconds from the start of the track, plus the
+        pattern length in ticks and seconds.
+
+        Each track uses its own tempo map, built from the ``set_tempo``
+        messages in that track only. Meta messages (including
+        ``end_of_track``) and sysex messages are kept, and messages
+        that share a tick keep their original order. The file is not
+        modified; the events hold copies of the messages.
+
+        Raises ``TypeError`` for type 0 and type 1 files, ``IndexError``
+        for an invalid track index, ``ValueError`` for an invalid tempo
+        or delta time, and
+        :class:`~mido.midifiles.sequences.SequenceTimeOverflow` if a
+        time exceeds the maximum MIDI tick value.
+        """
+        # Imported here to avoid a circular import at module level.
+        from .sequences import get_track_sequence
+        return get_track_sequence(self, track_index)
+
     def add_track(self, name=None):
         """Add a new track to the file.
 

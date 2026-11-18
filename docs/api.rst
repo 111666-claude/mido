@@ -189,6 +189,20 @@ Standard MIDI Files
 
 .. autofunction:: merge_tracks
 
+.. autofunction:: get_track_sequence
+
+.. autoclass:: TrackSequence
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autoclass:: SequenceEvent
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autoexception:: SequenceTimeOverflow
+
 .. module:: mido.midifiles
 
 .. todo: Expose more of the internal API? (meta, tracks, units…)
