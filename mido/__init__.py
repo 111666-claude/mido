@@ -109,11 +109,14 @@ from .messages import (
 )
 from .midifiles import (
     KeySignatureError,
+    LyricFragment,
     MetaMessage,
     MidiFile,
     MidiTrack,
     UnknownMetaMessage,
     bpm2tempo,
+    extract_lyrics,
+    format_lyrics,
     merge_tracks,
     second2tick,
     tempo2bpm,
@@ -128,6 +131,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "KeySignatureError",
+    "LyricFragment",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
     "MIN_PITCHWHEEL",
@@ -139,7 +143,9 @@ __all__ = [
     "Parser",
     "UnknownMetaMessage",
     "bpm2tempo",
+    "extract_lyrics",
     "format_as_string",
+    "format_lyrics",
     "merge_tracks",
     "parse",
     "parse_all",

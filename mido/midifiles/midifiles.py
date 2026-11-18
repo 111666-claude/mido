@@ -470,6 +470,18 @@ class MidiFile:
             for track in self.tracks:
                 write_track(outfile, track)
 
+    def lyrics(self, include_text=False):
+        """Extract a lyrics timeline from the file.
+
+        Returns a list of LyricFragment (track, tick, seconds, text,
+        type, line) sorted by absolute time, ready for preview. Pass
+        include_text=True to also include text meta messages.
+
+        The file is not modified.
+        """
+        from .lyrics import extract_lyrics
+        return extract_lyrics(self, include_text=include_text)
+
     def print_tracks(self, meta_only=False):
         """Prints out all messages in a .midi file.
 
