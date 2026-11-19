@@ -245,3 +245,45 @@ If you have a lot of rounding errors you should increase the time resolution
 with more ticks per quarter note, by setting MidiFile.ticks_per_beat to a
 large number. Typical values range from 96 to 480 but some use even more ticks
 per quarter note.
+
+
+Splitting Tracks into Instrument Lanes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A track can contain several instruments. Every ``program_change`` on a
+channel starts a new instrument interval, so notes played before and after the
+change belong to different instruments even though they share a track.
+:py:meth:`MidiFile.instrument_lanes` splits all tracks into
+:py:class:`InstrumentLane` objects, one for every ``(channel, program)``
+interval::
+
+    mid = MidiFile('song.mid')
+    for lane in mid.instrument_lanes:
+        print(lane.channel, lane.program)
+        for event in lane.events:
+            print(event.tick, event.second, event.track, event.message)
+
+Each :py:class:`LaneEvent` keeps the original message, its absolute tick,
+its position in seconds (computed from the file tempo map) and the index of
+the source track. Events that share the same channel and program are merged
+across tracks.
+
+Ownership rules:
+
+* A note belongs to the instrument active at its ``note_on``. It is always
+  closed on the same lane, even when a ``program_change`` happens while the
+  note sounds. A missing ``note_off`` is synthesized at the end of the source
+  track and flagged on the event.
+* ``control_change`` (including the sustain pedal, controller 64),
+  ``pitchwheel`` and channel pressure messages follow the instrument active
+  at the tick of the event.
+* The drum channel (channel 10) is never split: all its messages land in a
+  single lane whose ``program`` is ``None``.
+* Type 2 (asynchronous) files cannot be split as a whole. Call
+  :py:func:`split_track_lanes` on each track instead.
+
+A lane can be turned back into a regular track, for example to re-save each
+instrument separately::
+
+    for lane in mid.instrument_lanes:
+        track = lane.to_midi_track()

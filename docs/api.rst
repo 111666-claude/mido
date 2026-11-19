@@ -189,6 +189,22 @@ Standard MIDI Files
 
 .. autofunction:: merge_tracks
 
+.. autoclass:: InstrumentLane
+   :members:
+   :undoc-members:
+
+.. autoclass:: LaneEvent
+   :members:
+   :undoc-members:
+
+.. autofunction:: split_instrument_lanes
+
+.. autofunction:: split_track_lanes
+
+.. autofunction:: build_tempo_map
+
+.. autofunction:: tick_at
+
 .. module:: mido.midifiles
 
 .. todo: Expose more of the internal API? (meta, tracks, units…)

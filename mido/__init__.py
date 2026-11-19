@@ -108,16 +108,23 @@ from .messages import (
     parse_string_stream,
 )
 from .midifiles import (
+    DRUM_CHANNEL,
+    InstrumentLane,
     KeySignatureError,
+    LaneEvent,
     MetaMessage,
     MidiFile,
     MidiTrack,
     UnknownMetaMessage,
     bpm2tempo,
+    build_tempo_map,
     merge_tracks,
     second2tick,
+    split_instrument_lanes,
+    split_track_lanes,
     tempo2bpm,
     tick2second,
+    tick_at,
 )
 from .parser import Parser, parse, parse_all
 from .syx import read_syx_file, write_syx_file
@@ -127,7 +134,10 @@ if TYPE_CHECKING:
     from .backends.backend import get_input_names, get_ioport_names, get_output_names
 
 __all__ = [
+    "DRUM_CHANNEL",
+    "InstrumentLane",
     "KeySignatureError",
+    "LaneEvent",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
     "MIN_PITCHWHEEL",
@@ -139,6 +149,7 @@ __all__ = [
     "Parser",
     "UnknownMetaMessage",
     "bpm2tempo",
+    "build_tempo_map",
     "format_as_string",
     "merge_tracks",
     "parse",
@@ -149,8 +160,11 @@ __all__ = [
     "read_syx_file",
     "second2tick",
     "sockets",
+    "split_instrument_lanes",
+    "split_track_lanes",
     "tempo2bpm",
     "tick2second",
+    "tick_at",
     "version_info",
     "write_syx_file",
 ]

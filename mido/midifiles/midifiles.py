@@ -306,6 +306,7 @@ class MidiFile:
 
         self.tracks = []
         self._merged_track = None
+        self._instrument_lanes = None
 
         if type not in range(3):
             raise ValueError(
@@ -334,6 +335,28 @@ class MidiFile:
     def merged_track(self):
         self._merged_track = None
 
+    @property
+    def instrument_lanes(self):
+        """Instrument lanes split out of all tracks.
+
+        Channel messages are grouped into :class:`InstrumentLane`
+        objects by channel and ``program_change`` intervals, keeping
+        their original ticks, seconds and source tracks. The result is
+        cached; adding a track invalidates it.
+
+        Type 2 (asynchronous) files raise ``TypeError``, since their
+        tracks do not share a tempo reference. Use
+        :func:`mido.split_track_lanes` on individual tracks instead.
+        """
+        if self._instrument_lanes is None:
+            from .lanes import split_instrument_lanes
+            self._instrument_lanes = split_instrument_lanes(self)
+        return self._instrument_lanes
+
+    @instrument_lanes.deleter
+    def instrument_lanes(self):
+        self._instrument_lanes = None
+
     def add_track(self, name=None):
         """Add a new track to the file.
 
@@ -345,6 +368,7 @@ class MidiFile:
             track.name = name
         self.tracks.append(track)
         del self.merged_track  # uncache merged track
+        del self.instrument_lanes  # uncache instrument lanes
         return track
 
     def _load(self, infile):
