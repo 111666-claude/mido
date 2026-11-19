@@ -33,6 +33,7 @@ MIDI files:
     bpm2tempo()  -- convert beats per minute to MIDI file tempo
     tempo2bpm()  -- convert MIDI file tempo to beats per minute
     merge_tracks(tracks)  -- merge tracks into one track
+    make_click_track(mid) -- generate a metronome click track
 
 SYX files:
 
@@ -114,6 +115,7 @@ from .midifiles import (
     MidiTrack,
     UnknownMetaMessage,
     bpm2tempo,
+    make_click_track,
     merge_tracks,
     second2tick,
     tempo2bpm,
@@ -140,6 +142,7 @@ __all__ = [
     "UnknownMetaMessage",
     "bpm2tempo",
     "format_as_string",
+    "make_click_track",
     "merge_tracks",
     "parse",
     "parse_all",

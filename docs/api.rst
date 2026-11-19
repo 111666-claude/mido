@@ -189,6 +189,8 @@ Standard MIDI Files
 
 .. autofunction:: merge_tracks
 
+.. autofunction:: make_click_track
+
 .. module:: mido.midifiles
 
 .. todo: Expose more of the internal API? (meta, tracks, units…)
