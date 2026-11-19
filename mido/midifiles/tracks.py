@@ -6,6 +6,12 @@ from .meta import MetaMessage
 
 
 class MidiTrack(list):
+    def __init__(self, iterable=()):
+        super().__init__(iterable)
+        # Fragmentation metadata for the sysex messages in this track.
+        # Populated when reading a MIDI file; see midifiles.sysex.
+        self.sysex_fragments = []
+
     @property
     def name(self):
         """Name of the track.
@@ -35,7 +41,11 @@ class MidiTrack(list):
             self.insert(0, MetaMessage('track_name', name=name, time=0))
 
     def copy(self):
-        return self.__class__(self)
+        track = self.__class__(self)
+        # Carry over the raw SysEx fragmentation metadata so copies
+        # keep their lossless round-trip information.
+        track.sysex_fragments = list(self.sysex_fragments)
+        return track
 
     def __getitem__(self, index_or_slice):
         # Retrieve item from the MidiTrack

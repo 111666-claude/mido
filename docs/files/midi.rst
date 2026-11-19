@@ -74,6 +74,62 @@ be sent on ports, which is why they are ``off`` by default.
 
 
 
+Fragmented SysEx Messages
+-------------------------
+
+A single SysEx message can be split over several escape events in a
+track: an ``F0`` event starts the message and one or more ``F7``
+events continue it. Other MIDI events (such as notes) may appear
+between the fragments without ending the message. This is sometimes
+used for large tone preset dumps.
+
+mido keeps every fragment as a separate ``sysex`` message in the
+track, and additionally records the raw fragmentation in the track's
+``sysex_fragments`` attribute. To see the whole message instead of
+the pieces, iterate the merged SysEx messages::
+
+    from mido import iter_sysex_messages
+
+    for sysex in iter_sysex_messages(mid.tracks[0]):
+        print(sysex.data)            # merged payload
+        print(sysex.start_tick,
+              sysex.end_tick)        # absolute ticks of the fragments
+        for fragment in sysex.fragments:
+            print(fragment.status,   # 0xf0 start or 0xf7 continuation
+                  fragment.tick,     # absolute tick
+                  fragment.index,    # position in the track
+                  fragment.raw)      # exact bytes inside the length field
+
+The convenience method ``MidiFile.iter_sysex()`` does this for every
+track. Fragment groups never span tracks, so an ``F7`` continuation
+in another track is treated as an orphan there. To walk a track in
+order with the fragments already merged, use
+``iter_track_events()``: non-SysEx events keep their place, and each
+merged SysEx is yielded where its last fragment was.
+
+The fragment metadata is writable. ``raw`` holds the exact bytes
+(including the leading ``F0`` and trailing ``F7`` where present),
+alongside ``status`` and ``delta``. When you save, mido writes these
+fragments back as they were, so a file that was merely opened and
+saved round-trips byte-for-byte, notes and all.
+
+Malformed fragmentation raises a dedicated exception by default:
+
+* :class:`~mido.OrphanSysexError` -- an ``F7`` fragment with no
+  preceding ``F0`` in the same track.
+* :class:`~mido.NestedSysexError` -- an ``F0`` fragment (or an
+  embedded ``F0`` byte) while another SysEx is still open.
+* :class:`~mido.UnterminatedSysexError` -- the track ends before an
+  ``F7`` terminator is seen.
+* :class:`~mido.SysexTooLongError` -- the merged payload exceeds
+  :data:`~mido.MAX_SYSEX_LENGTH` bytes.
+
+Each condition has an ``allow_orphan``, ``allow_nested`` or
+``allow_unterminated`` keyword argument that returns a result object
+describing the condition instead of raising.
+
+
+
 Creating a New File
 -------------------
 

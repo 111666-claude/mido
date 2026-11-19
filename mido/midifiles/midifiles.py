@@ -26,6 +26,7 @@ from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
+from .sysex import SysExFragment, get_sysex_fragments, iter_file_sysex
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
 
@@ -133,12 +134,16 @@ def read_message(infile, status_byte, peek_data, delta, clip=False):
     return Message.from_bytes([status_byte] + data_bytes, time=delta)
 
 
-def read_sysex(infile, delta, clip=False):
+def read_sysex(infile, delta, clip=False, status_byte=0xf0):
     length = read_variable_int(infile)
-    data = read_bytes(infile, length)
+    raw = read_bytes(infile, length)
 
-    # Strip start and end bytes.
-    # TODO: is this necessary?
+    # Keep the exact escape-sequence bytes so the original
+    # fragmentation can be reconstructed on save.
+    terminated = bool(raw) and raw[-1] == 0xf7
+
+    # Strip start and end bytes to build the message payload.
+    data = list(raw)
     if data and data[0] == 0xf0:
         data = data[1:]
     if data and data[-1] == 0xf7:
@@ -146,8 +151,26 @@ def read_sysex(infile, delta, clip=False):
 
     if clip:
         data = [byte if byte < 127 else 127 for byte in data]
+    elif any(byte > 127 for byte in data):
+        # Framing F0/F7 bytes were stripped above, so a byte > 127
+        # inside the payload is an embedded status byte (for example a
+        # nested F0). A well-formed single F0...F7 event keeps its
+        # historical validation; fragmented events are kept raw and
+        # reported by the sysex grouping layer instead of failing the
+        # whole import.
+        well_formed_single = (
+            status_byte == 0xf0
+            and terminated
+            and raw[0] == 0xf0
+            and len(raw) == len(data) + 2
+        )
+        if well_formed_single:
+            raise OSError('data byte must be in range 0..127')
 
-    return Message('sysex', data=data, time=delta)
+    has_status_byte = any(byte > 127 for byte in data)
+    message = Message('sysex', data=data, time=delta,
+                      skip_checks=bool(clip) or has_status_byte)
+    return message, status_byte, raw, terminated
 
 
 def read_variable_int(infile):
@@ -167,7 +190,7 @@ def read_meta_message(infile, delta):
     return build_meta_message(meta_type, data, delta)
 
 
-def read_track(infile, debug=False, clip=False):
+def read_track(infile, debug=False, clip=False, track_index=0):
     track = MidiTrack()
 
     name, size = read_chunk_header(infile)
@@ -181,6 +204,7 @@ def read_track(infile, debug=False, clip=False):
 
     start = infile.tell()
     last_status = None
+    tick = 0
 
     while True:
         # End of track reached.
@@ -191,6 +215,7 @@ def read_track(infile, debug=False, clip=False):
             _dbg('Message:')
 
         delta = read_variable_int(infile)
+        tick += delta
 
         if debug:
             _dbg(f'-> delta={delta}')
@@ -213,7 +238,18 @@ def read_track(infile, debug=False, clip=False):
         elif status_byte in [0xf0, 0xf7]:
             # TODO: I'm not quite clear on the difference between
             # f0 and f7 events.
-            msg = read_sysex(infile, delta, clip)
+            msg, sysex_status, raw, terminated = read_sysex(
+                infile, delta, clip, status_byte)
+            track.sysex_fragments.append(SysExFragment(
+                track_index=track_index,
+                index=len(track),
+                delta=delta,
+                tick=tick,
+                status=sysex_status,
+                raw=raw,
+                terminated=terminated,
+                message=msg,
+            ))
         else:
             msg = read_message(infile, status_byte, peek_data, delta, clip)
 
@@ -238,6 +274,13 @@ def write_chunk(outfile, name, data):
 def write_track(outfile, track):
     data = bytearray()
 
+    # Map every sysex message back to its raw escape fragment so the
+    # original F0/F7 segmentation is written back byte-for-byte.
+    fragments = {
+        id(fragment.message): fragment
+        for fragment in get_sysex_fragments(track)
+    }
+
     running_status_byte = None
     for msg in fix_end_of_track(track):
         if not isinstance(msg.time, Integral):
@@ -248,31 +291,41 @@ def write_track(outfile, track):
         if msg.is_realtime:
             raise ValueError('realtime messages are not allowed in MIDI files')
 
-        data.extend(encode_variable_int(msg.time))
-
-        if msg.is_meta:
-            data.extend(msg.bytes())
-            running_status_byte = None
-        elif msg.type == 'sysex':
-            data.append(0xf0)
-            # length (+ 1 for end byte (0xf7))
-            data.extend(encode_variable_int(len(msg.data) + 1))
-            data.extend(msg.data)
-            data.append(0xf7)
+        if msg.type == 'sysex':
+            fragment = fragments.get(id(msg))
+            if fragment is not None:
+                # Reproduce (or apply the edited) escape event exactly.
+                data.extend(encode_variable_int(fragment.delta))
+                data.append(fragment.status)
+                data.extend(encode_variable_int(len(fragment.raw)))
+                data.extend(fragment.raw)
+            else:
+                data.extend(encode_variable_int(msg.time))
+                data.append(0xf0)
+                # length (+ 1 for end byte (0xf7))
+                data.extend(encode_variable_int(len(msg.data) + 1))
+                data.extend(msg.data)
+                data.append(0xf7)
             running_status_byte = None
         else:
-            msg_bytes = msg.bytes()
-            status_byte = msg_bytes[0]
+            data.extend(encode_variable_int(msg.time))
 
-            if status_byte == running_status_byte:
-                data.extend(msg_bytes[1:])
-            else:
-                data.extend(msg_bytes)
-
-            if status_byte < 0xf0:
-                running_status_byte = status_byte
-            else:
+            if msg.is_meta:
+                data.extend(msg.bytes())
                 running_status_byte = None
+            else:
+                msg_bytes = msg.bytes()
+                status_byte = msg_bytes[0]
+
+                if status_byte == running_status_byte:
+                    data.extend(msg_bytes[1:])
+                else:
+                    data.extend(msg_bytes)
+
+                if status_byte < 0xf0:
+                    running_status_byte = status_byte
+                else:
+                    running_status_byte = None
 
     write_chunk(outfile, b'MTrk', data)
 
@@ -370,7 +423,8 @@ class MidiFile:
 
                 self.tracks.append(read_track(infile,
                                               debug=self.debug,
-                                              clip=self.clip))
+                                              clip=self.clip,
+                                              track_index=i))
                 # TODO: used to ignore EOFError. I hope things still work.
 
     @property
@@ -469,6 +523,17 @@ class MidiFile:
 
             for track in self.tracks:
                 write_track(outfile, track)
+
+    def iter_sysex(self, **kwargs):
+        """Yield complete :class:`~.sysex.SysExMessage` objects.
+
+        SysEx messages split over several F0/F7 escape events are
+        merged, including ones with other MIDI events between their
+        fragments. Fragment groups never span tracks. Keyword
+        arguments are forwarded to
+        :func:`~.sysex.group_sysex_fragments`.
+        """
+        return iter_file_sysex(self, **kwargs)
 
     def print_tracks(self, meta_only=False):
         """Prints out all messages in a .midi file.

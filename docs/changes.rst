@@ -16,6 +16,19 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* New Midifile: fragmented (escape) SysEx support. ``F0`` start
+  fragments and their ``F7`` continuations can be merged into complete
+  SysEx messages with ``mido.iter_sysex_messages()``,
+  ``mido.iter_track_events()`` and the ``MidiFile.iter_sysex()``
+  method, while the raw fragmentation is retained in the track's
+  ``sysex_fragments`` attribute so files round-trip byte-for-byte.
+  Orphan ``F7``, nested ``F0``, missing terminator and oversized
+  payload conditions raise dedicated exceptions (or are returned as
+  marked results via the ``allow_*`` arguments).
+
 1.3.3 (2024-10-25)
 ^^^^^^^^^^^^^^^^^^
 

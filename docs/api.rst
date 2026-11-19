@@ -189,6 +189,39 @@ Standard MIDI Files
 
 .. autofunction:: merge_tracks
 
+Fragmented SysEx
+""""""""""""""""
+
+.. module:: mido.midifiles.sysex
+
+.. autoclass:: SysExFragment
+   :members:
+
+.. autoclass:: SysExMessage
+   :members:
+
+.. autofunction:: get_sysex_fragments
+
+.. autofunction:: group_sysex_fragments
+
+.. autofunction:: iter_sysex_messages
+
+.. autofunction:: iter_track_events
+
+.. autofunction:: iter_file_sysex
+
+.. autoexception:: SysexError
+
+.. autoexception:: OrphanSysexError
+
+.. autoexception:: NestedSysexError
+
+.. autoexception:: UnterminatedSysexError
+
+.. autoexception:: SysexTooLongError
+
+.. autodata:: MAX_SYSEX_LENGTH
+
 .. module:: mido.midifiles
 
 .. todo: Expose more of the internal API? (meta, tracks, units…)
