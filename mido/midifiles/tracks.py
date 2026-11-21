@@ -6,6 +6,21 @@ from .meta import MetaMessage
 
 
 class MidiTrack(list):
+    def __new__(cls, iterable=()):
+        # list subclasses are also created through __new__ (e.g. in
+        # copy(), slicing and __add__) with __init__ bypassed, so the
+        # version counter is set up here. Items themselves are filled
+        # in by __init__ (or by list directly on the bypassed paths).
+        self = super().__new__(cls)
+        self._version = 0
+        return self
+
+    def __init__(self, iterable=()):
+        super().__init__(iterable)
+
+    def _bump_version(self):
+        self._version += 1
+
     @property
     def name(self):
         """Name of the track.
@@ -62,6 +77,59 @@ class MidiTrack(list):
         else:
             messages = '[\n  {}]'.format(',\n  '.join(repr(m) for m in self))
         return f'{self.__class__.__name__}({messages})'
+
+    # Every list operation that can change the contents bumps the
+    # version so cached merged tracks are invalidated.
+    def append(self, message):
+        super().append(message)
+        self._bump_version()
+
+    def extend(self, iterable):
+        super().extend(iterable)
+        self._bump_version()
+
+    def insert(self, index, message):
+        super().insert(index, message)
+        self._bump_version()
+
+    def remove(self, message):
+        super().remove(message)
+        self._bump_version()
+
+    def pop(self, index=-1):
+        message = super().pop(index)
+        self._bump_version()
+        return message
+
+    def clear(self):
+        super().clear()
+        self._bump_version()
+
+    def sort(self, *args, **kwargs):
+        super().sort(*args, **kwargs)
+        self._bump_version()
+
+    def reverse(self):
+        super().reverse()
+        self._bump_version()
+
+    def __setitem__(self, index_or_slice, value):
+        super().__setitem__(index_or_slice, value)
+        self._bump_version()
+
+    def __delitem__(self, index_or_slice):
+        super().__delitem__(index_or_slice)
+        self._bump_version()
+
+    def __iadd__(self, iterable):
+        result = super().__iadd__(iterable)
+        self._bump_version()
+        return result
+
+    def __imul__(self, count):
+        result = super().__imul__(count)
+        self._bump_version()
+        return result
 
 
 def _to_abstime(messages):

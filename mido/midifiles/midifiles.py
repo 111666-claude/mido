@@ -290,6 +290,99 @@ def get_seconds_per_tick(tempo, ticks_per_beat):
     return (tempo / 1000000.0) / ticks_per_beat
 
 
+class TrackList(list):
+    """List of tracks held by a MidiFile.
+
+    The list has a version counter that is bumped on every mutation,
+    just like MidiTrack's. This lets MidiFile.merged_track detect any
+    change to the track list (adding, removing or replacing tracks)
+    and invalidate its cache without recomputing on every read.
+    """
+
+    def __new__(cls, iterable=()):
+        # As with MidiTrack, list subclasses can reach construction
+        # through paths that bypass __init__, so the version counter is
+        # set up here.
+        self = super().__new__(cls)
+        self._version = 0
+        return self
+
+    def __init__(self, iterable=()):
+        # Bypass the overridden extend() so the initial version stays 0.
+        list.extend(self, (MidiTrack(track)
+                           if not isinstance(track, MidiTrack)
+                           else track
+                           for track in iterable))
+
+    def _bump_version(self):
+        self._version += 1
+
+    @staticmethod
+    def _as_track(track):
+        if not isinstance(track, MidiTrack):
+            track = MidiTrack(track)
+        return track
+
+    def append(self, track):
+        super().append(self._as_track(track))
+        self._bump_version()
+
+    def extend(self, iterable):
+        super().extend(self._as_track(track) for track in iterable)
+        self._bump_version()
+
+    def insert(self, index, track):
+        super().insert(index, self._as_track(track))
+        self._bump_version()
+
+    def remove(self, track):
+        super().remove(track)
+        self._bump_version()
+
+    def pop(self, index=-1):
+        track = super().pop(index)
+        self._bump_version()
+        return track
+
+    def clear(self):
+        super().clear()
+        self._bump_version()
+
+    def sort(self, *args, **kwargs):
+        super().sort(*args, **kwargs)
+        self._bump_version()
+
+    def reverse(self):
+        super().reverse()
+        self._bump_version()
+
+    def __setitem__(self, index_or_slice, value):
+        if isinstance(index_or_slice, slice):
+            value = [self._as_track(track) for track in value]
+        else:
+            value = self._as_track(value)
+        super().__setitem__(index_or_slice, value)
+        self._bump_version()
+
+    def __delitem__(self, index_or_slice):
+        super().__delitem__(index_or_slice)
+        self._bump_version()
+
+    def __iadd__(self, iterable):
+        result = super().__iadd__(self._as_track(track) for track in iterable)
+        self._bump_version()
+        return result
+
+    def __imul__(self, count):
+        result = super().__imul__(count)
+        self._bump_version()
+        return result
+
+    def snapshot(self):
+        """Version fingerprint of the track list and every track in it."""
+        return self._version, tuple(track._version for track in self)
+
+
 class MidiFile:
     def __init__(self, filename=None, file=None,
                  type=1, ticks_per_beat=DEFAULT_TICKS_PER_BEAT,
@@ -306,15 +399,16 @@ class MidiFile:
         self.debug = debug
         self.clip = clip
 
-        self.tracks = []
+        self.tracks = TrackList()
         self._merged_track = None
+        self._merged_track_snapshot = None
 
         if type not in range(3):
             raise ValueError(
                 f'invalid format {format} (must be 0, 1 or 2)')
 
         if tracks is not None:
-            self.tracks = tracks
+            self.tracks = TrackList(tracks)
         elif file is not None:
             self._load(file)
         elif self.filename is not None:
@@ -328,13 +422,21 @@ class MidiFile:
         if self.type == 2:
             raise TypeError("can't merge tracks in type 2 (asynchronous) file")
 
-        if self._merged_track is None:
+        # Recompute only if the track list or one of the tracks has
+        # changed since the cache was built. This keeps repeated
+        # read-only access cheap while any in-place mutation (through
+        # the file or through a reference to a track) invalidates it.
+        snapshot = self.tracks.snapshot()
+        if (self._merged_track is None
+                or snapshot != self._merged_track_snapshot):
             self._merged_track = merge_tracks(self.tracks)
+            self._merged_track_snapshot = snapshot
         return self._merged_track
 
     @merged_track.deleter
     def merged_track(self):
         self._merged_track = None
+        self._merged_track_snapshot = None
 
     def add_track(self, name=None):
         """Add a new track to the file.
@@ -346,7 +448,6 @@ class MidiFile:
         if name is not None:
             track.name = name
         self.tracks.append(track)
-        del self.merged_track  # uncache merged track
         return track
 
     def _load(self, infile):

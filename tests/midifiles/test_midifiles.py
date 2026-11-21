@@ -183,3 +183,162 @@ def test_midifile_repr():
     for track, track_eval in zip(midifile.tracks, midifile_eval.tracks):
         for m1, m2 in zip(track, track_eval):
             assert m1 == m2
+
+
+def _make_file():
+    return MidiFile(type=1, ticks_per_beat=120, tracks=[
+        MidiTrack([
+            Message('note_on', note=60, velocity=64, time=0),
+            Message('note_off', note=60, velocity=64, time=10),
+        ]),
+    ])
+
+
+def _merged_msg_count(midifile):
+    # Exclude the end_of_track message appended by merge_tracks().
+    return sum(1 for msg in midifile.merged_track
+               if msg.type != 'end_of_track')
+
+
+def test_merged_track_is_cached_for_read_only_access():
+    midifile = _make_file()
+    assert midifile.merged_track is midifile.merged_track
+    # Playback iteration reads the merged track but must not drop cache.
+    list(midifile)
+    assert midifile.merged_track is midifile.merged_track
+
+
+def test_merged_track_invalidated_by_track_mutations():
+    midifile = _make_file()
+    track = midifile.tracks[0]
+    assert _merged_msg_count(midifile) == 2
+
+    # Prime the cache before every mutation, like an editor that
+    # previews the file between edits.
+    midifile.merged_track
+    track.append(Message('note_off', note=60, velocity=0, time=5))
+    assert _merged_msg_count(midifile) == 3
+
+    midifile.merged_track
+    track.insert(0, Message('control_change', control=1, value=1, time=0))
+    assert _merged_msg_count(midifile) == 4
+
+    midifile.merged_track
+    track[0] = Message('control_change', control=2, value=2, time=0)
+    assert _merged_msg_count(midifile) == 4
+
+    midifile.merged_track
+    track[0:2] = [Message('pitchwheel', pitch=1, time=0)]
+    assert _merged_msg_count(midifile) == 3
+
+    midifile.merged_track
+    track.extend([Message('note_off', note=60, time=1)])
+    assert _merged_msg_count(midifile) == 4
+
+    midifile.merged_track
+    track += [Message('note_off', note=60, time=1)]
+    assert _merged_msg_count(midifile) == 5
+
+    midifile.merged_track
+    track.remove(track[0])
+    assert _merged_msg_count(midifile) == 4
+
+    midifile.merged_track
+    del track[0]
+    assert _merged_msg_count(midifile) == 3
+
+    midifile.merged_track
+    track.pop()
+    assert _merged_msg_count(midifile) == 2
+
+    midifile.merged_track
+    track.clear()
+    assert _merged_msg_count(midifile) == 0
+
+
+def test_merged_track_invalidated_by_track_list_mutations():
+    midifile = _make_file()
+    assert _merged_msg_count(midifile) == 2
+
+    midifile.merged_track
+    midifile.add_track()
+    midifile.tracks[-1].append(Message('note_on', note=72, time=0))
+    assert _merged_msg_count(midifile) == 3
+
+    midifile.merged_track
+    midifile.tracks.insert(0, MidiTrack([
+        Message('note_on', note=80, time=0)]))
+    assert _merged_msg_count(midifile) == 4
+
+    midifile.merged_track
+    midifile.tracks[0] = MidiTrack([
+        Message('note_on', note=81, time=0)])
+    notes = {getattr(msg, 'note', None)
+             for msg in midifile.merged_track}
+    assert 81 in notes and 80 not in notes
+
+    midifile.merged_track
+    midifile.tracks[0:1] = [MidiTrack([Message('note_on', note=82, time=0)])]
+    assert any(getattr(msg, 'note', None) == 82
+               for msg in midifile.merged_track)
+
+    midifile.merged_track
+    midifile.tracks.extend([MidiTrack([Message('note_on', note=83, time=0)])])
+    assert _merged_msg_count(midifile) == 5
+
+    midifile.merged_track
+    midifile.tracks += [MidiTrack([Message('note_on', note=84, time=0)])]
+    assert _merged_msg_count(midifile) == 6
+
+    midifile.merged_track
+    midifile.tracks.remove(midifile.tracks[-1])
+    assert _merged_msg_count(midifile) == 5
+
+    midifile.merged_track
+    del midifile.tracks[-1]
+    assert _merged_msg_count(midifile) == 4
+
+    midifile.merged_track
+    midifile.tracks.pop()
+    assert _merged_msg_count(midifile) == 3
+
+    midifile.merged_track
+    midifile.tracks.clear()
+    assert _merged_msg_count(midifile) == 0
+
+
+def test_merged_track_invalidated_via_direct_track_reference():
+    midifile = _make_file()
+    # The editor holds its own reference to the track object.
+    track = midifile.tracks[0]
+    midifile.merged_track
+    track.append(Message('note_off', note=60, velocity=0, time=5))
+    assert _merged_msg_count(midifile) == 3
+
+
+def test_merged_track_deleter_forces_recompute():
+    midifile = _make_file()
+    cached = midifile.merged_track
+    del midifile.merged_track
+    assert midifile.merged_track is not cached
+
+
+def test_type2_merged_track_still_forbidden_after_mutation():
+    midifile = MidiFile(type=2, tracks=[
+        MidiTrack([Message('note_on', time=0)])])
+    with raises(TypeError):
+        midifile.merged_track
+    midifile.tracks[0].append(Message('note_off', time=1))
+    with raises(TypeError):
+        midifile.merged_track
+
+
+def test_merged_track_keeps_end_of_track_and_tie_order():
+    midifile = MidiFile(type=1, tracks=[
+        MidiTrack([Message('control_change', control=i, time=10)])
+        for i in range(3)
+    ])
+    merged = midifile.merged_track
+    assert merged[-1].type == 'end_of_track'
+    assert [msg.control for msg in merged
+            if msg.type == 'control_change'] == [0, 1, 2]
