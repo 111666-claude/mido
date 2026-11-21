@@ -16,6 +16,12 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* New ``MidiFile`` can now read RIFF RMID (``.rmi``) containers and
+  optionally write them with ``MidiFile.save(rmid=True)``
+
 1.3.3 (2024-10-25)
 ^^^^^^^^^^^^^^^^^^
 

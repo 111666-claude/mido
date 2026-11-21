@@ -179,6 +179,8 @@ Standard MIDI Files
    :inherited-members:
    :undoc-members:
 
+.. autoexception:: mido.midifiles.RiffError
+
 .. autofunction:: tick2second
 
 .. autofunction:: second2tick

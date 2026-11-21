@@ -133,6 +133,37 @@ if you attempt to save a file with no tracks or with more than one
 track.
 
 
+RIFF RMID Files
+---------------
+
+Some old software and games store a Standard MIDI File inside a RIFF
+container with the form type ``RMID`` (often using the ``.rmi``
+extension). The MIDI data itself is unchanged; it is simply wrapped in
+a little endian RIFF ``data`` chunk, sometimes alongside other chunks
+such as ``LIST``/``INFO`` tags.
+
+``MidiFile`` reads these files transparently. If the data starts with
+``RIFF``/``RMID`` the container is parsed, unknown and ``LIST`` chunks
+are skipped, and the embedded ``data`` chunk is read as an ordinary
+MIDI file. Files that start with ``MThd`` are handled exactly as
+before::
+
+    mid = MidiFile('old_game_song.rmi')
+
+Saving an RMID file is opt-in. Pass ``rmid=True`` to ``save`` and the
+Standard MIDI File is wrapped in a correctly sized RIFF container,
+with the required odd-byte padding when the MIDI data has an odd
+length::
+
+    mid.save('song.rmi', rmid=True)
+
+The default (``rmid=False``) keeps writing a plain Standard MIDI File.
+Malformed containers raise an ``OSError`` whose message includes the
+byte offset of the problem, for example when a chunk length extends
+past the end of its container, the ``data`` chunk is missing or more
+than one ``data`` chunk is present.
+
+
 Playback Length
 ---------------
 

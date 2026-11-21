@@ -19,6 +19,7 @@ http://www.recordingblogs.com/sa/tabid/82/EntryId/44/MIDI-Part-XIII-Delta-time-a
 http://www.sonicspot.com/guide/midifiles.html
 """
 
+import io
 import string
 import struct
 import time
@@ -26,6 +27,7 @@ from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
+from .riff import RiffError, build_rmid, read_rmid_smf
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
 
@@ -93,8 +95,6 @@ def read_chunk_header(infile):
     header = infile.read(8)
     if len(header) < 8:
         raise EOFError
-
-    # TODO: check for b'RIFF' and switch endian?
 
     return struct.unpack('>4sL', header)
 
@@ -348,6 +348,13 @@ class MidiFile:
         return track
 
     def _load(self, infile):
+        # RIFF RMID files wrap an ordinary Standard MIDI File. Unwrap
+        # it before the debug wrapper so the debug output only covers
+        # the SMF itself. Non-RIFF input is passed through unchanged.
+        smf_stream = read_rmid_smf(infile)
+        if smf_stream is not None:
+            infile = smf_stream
+
         if self.debug:
             infile = DebugFileWrapper(infile)
 
@@ -437,13 +444,16 @@ class MidiFile:
             else:
                 yield msg
 
-    def save(self, filename=None, file=None):
+    def save(self, filename=None, file=None, rmid=False):
         """Save to a file.
 
         If file is passed the data will be saved to that file. This is
         typically an in-memory file or and already open file like sys.stdout.
 
         If filename is passed the data will be saved to that file.
+
+        If rmid is True the Standard MIDI File is wrapped in a RIFF RMID
+        container instead of being written directly.
 
         Raises ValueError if both file and filename are None,
         or if a type 0 file has != one track.
@@ -452,23 +462,32 @@ class MidiFile:
             raise ValueError('type 0 file must have exactly 1 track')
 
         if file is not None:
-            self._save(file)
+            self._save(file, rmid=rmid)
         elif filename is not None:
             with open(filename, 'wb') as file:
-                self._save(file)
+                self._save(file, rmid=rmid)
         else:
             raise ValueError('requires filename or file')
 
-    def _save(self, outfile):
+    def _save(self, outfile, rmid=False):
         with meta_charset(self.charset):
             header = struct.pack('>hhh', self.type,
                                  len(self.tracks),
                                  self.ticks_per_beat)
 
-            write_chunk(outfile, b'MThd', header)
+            if rmid:
+                # Build the whole SMF first so it can be wrapped in the
+                # RIFF data chunk.
+                smf = io.BytesIO()
+                write_chunk(smf, b'MThd', header)
+                for track in self.tracks:
+                    write_track(smf, track)
+                outfile.write(build_rmid(smf.getvalue()))
+            else:
+                write_chunk(outfile, b'MThd', header)
 
-            for track in self.tracks:
-                write_track(outfile, track)
+                for track in self.tracks:
+                    write_track(outfile, track)
 
     def print_tracks(self, meta_only=False):
         """Prints out all messages in a .midi file.
