@@ -155,6 +155,27 @@ API
 .. autofunction:: reset_messages
 
 
+Routing
+^^^^^^^
+
+.. module:: mido.routing
+
+.. autoclass:: Router
+   :members:
+   :inherited-members:
+   :undoc-members:
+
+.. autoclass:: RoutingRule
+   :members:
+   :undoc-members:
+
+.. autoexception:: RoutingError
+.. autoexception:: RoutingLoopError
+.. autoexception:: RoutingSendError
+.. autoexception:: ClosedOutputError
+.. autoexception:: UnmatchedMessageError
+
+
 Files
 ------
 

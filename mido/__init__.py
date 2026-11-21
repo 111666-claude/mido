@@ -26,6 +26,11 @@ Ports:
     get_output_names() -- return a list of names of available output ports
     get_ioport_names() -- return a list of names of available I/O ports
 
+Routing:
+
+    Router(rules, ...) -- forward messages to output ports by rule
+    RoutingRule(outputs, types=None, channels=None, remap=None, ...)
+
 MIDI files:
 
     MidiFile(filename, **kwargs) -- open a MIDI file
@@ -93,7 +98,7 @@ Getting started:
     ['MPK mini MIDI 1', 'SH-201']
 """
 
-from . import ports, sockets
+from . import ports, routing, sockets
 from .backends.backend import Backend
 from .messages import (
     MAX_PITCHWHEEL,
@@ -118,10 +123,20 @@ from .midifiles import (
     tick2second,
 )
 from .parser import Parser, parse, parse_all
+from .routing import (
+    ClosedOutputError,
+    Router,
+    RoutingError,
+    RoutingLoopError,
+    RoutingRule,
+    RoutingSendError,
+    UnmatchedMessageError,
+)
 from .syx import read_syx_file, write_syx_file
 from .version import version_info
 
 __all__ = [
+    "ClosedOutputError",
     "KeySignatureError",
     "MAX_PITCHWHEEL",
     "MAX_SONGPOS",
@@ -132,7 +147,13 @@ __all__ = [
     "MidiFile",
     "MidiTrack",
     "Parser",
+    "Router",
+    "RoutingError",
+    "RoutingLoopError",
+    "RoutingRule",
+    "RoutingSendError",
     "UnknownMetaMessage",
+    "UnmatchedMessageError",
     "bpm2tempo",
     "format_as_string",
     "merge_tracks",
@@ -142,10 +163,10 @@ __all__ = [
     "parse_string_stream",
     "ports",
     "read_syx_file",
+    "routing",
     "second2tick",
     "sockets",
-    "tempo2bpm",
-    "tick2second",
+    "tempo2bpm",    "tick2second",
     "version_info",
     "write_syx_file",
 ]

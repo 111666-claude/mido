@@ -17,6 +17,16 @@ Release History
 ---------------
 
 
+Unreleased
+^^^^^^^^^^
+
+* Add ``mido.routing``: a composable ``Router`` output port that forwards
+  messages to one or more output ports according to rules matched on
+  channel and message type, with channel remapping and explicit default
+  paths for SysEx and system realtime messages. Rules can be replaced
+  atomically at run time and router cycles are rejected.
+
+
 1.3.0 (2023-07-21)
 ^^^^^^^^^^^^^^^^^^
 
