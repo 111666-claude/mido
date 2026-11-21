@@ -21,6 +21,7 @@ http://www.sonicspot.com/guide/midifiles.html
 
 import string
 import struct
+import tempfile
 import time
 from numbers import Integral
 
@@ -36,6 +37,20 @@ DEFAULT_TICKS_PER_BEAT = 480
 
 # Maximum message length to attempt to read.
 MAX_MESSAGE_LENGTH = 1000000
+
+# The MTrk chunk length is stored as an unsigned 32 bit integer.
+MAX_TRACK_LENGTH = 0xffffffff
+
+# How many encoded bytes to buffer before writing to the output file.
+# This keeps the memory needed to save a track bounded regardless of
+# the track length.
+WRITE_BUFFER_SIZE = 64 * 1024
+
+# Non-seekable outputs cannot have their chunk length backfilled, so
+# the encoded track has to be staged somewhere before its length is
+# known. Keep this much of the staging buffer in memory; anything
+# beyond that is spilled to a temporary file on disk.
+NON_SEEKABLE_SPOOL_SIZE = 1024 * 1024
 
 
 def print_byte(byte, pos=0):
@@ -235,46 +250,300 @@ def write_chunk(outfile, name, data):
     outfile.write(data)
 
 
-def write_track(outfile, track):
-    data = bytearray()
+def _is_seekable(outfile):
+    """Return True if the chunk length can be backfilled."""
+    # Appending files are seekable but some platforms ignore the seek
+    # when writing, which would put the backfilled length at the end of
+    # the file instead. Treat them as non-seekable.
+    mode = getattr(outfile, 'mode', None)
+    if isinstance(mode, str) and 'a' in mode:
+        return False
 
+    seekable = getattr(outfile, 'seekable', None)
+    if seekable is not None:
+        try:
+            return bool(seekable())
+        except (OSError, ValueError):
+            return False
+
+    # Duck-typed file objects may not have seekable().
+    return (callable(getattr(outfile, 'seek', None))
+            and callable(getattr(outfile, 'tell', None)))
+
+
+def _write_all(outfile, data, label, position):
+    """Write all of `data`, dealing with short writes.
+
+    `position` is the track relative byte offset of `data`, used to
+    make write errors easy to locate.
+    """
+    view = memoryview(data)
+    offset = 0
+    while offset < len(view):
+        chunk = view[offset:]
+        if not isinstance(chunk, bytes):
+            # Pass bytes rather than a memoryview for compatibility
+            # with file-like objects that only accept bytes.
+            chunk = chunk.tobytes()
+        try:
+            written = outfile.write(chunk)
+        except (OSError, ValueError) as exc:
+            raise OSError(
+                f'{label}write failed at track byte {position + offset}: '
+                f'{exc}') from exc
+
+        if written is None:
+            # File-like object that does not report the byte count.
+            return
+        if not isinstance(written, Integral) or written <= 0:
+            raise OSError(
+                f'{label}write made no progress at track byte '
+                f'{position + offset}')
+
+        offset += written
+
+
+class _TrackWriter:
+    """Encode track events and write them out in bounded chunks."""
+
+    def __init__(self, write, label):
+        self._write = write
+        self._label = label
+        self._buffer = bytearray()
+        self.total = 0
+
+    def emit(self, data):
+        self._buffer.extend(data)
+        self.total += len(data)
+
+        if self.total > MAX_TRACK_LENGTH:
+            raise ValueError(
+                f'{self._label}MTrk chunk length {self.total} exceeds the '
+                f'32 bit maximum of {MAX_TRACK_LENGTH} bytes')
+
+        if len(self._buffer) >= WRITE_BUFFER_SIZE:
+            self.flush()
+
+    def flush(self):
+        if self._buffer:
+            self._write(bytes(self._buffer))
+            self._buffer.clear()
+
+
+def _encode_track(track, write, track_index=None):
+    """Encode a track as MTrk chunk data.
+
+    Events are passed to `write` in chunks of at most
+    WRITE_BUFFER_SIZE bytes, so a track of any size can be written
+    without keeping the encoded track in memory.
+
+    Returns the total number of encoded bytes.
+    """
+    if track_index is None:
+        label = ''
+    else:
+        label = f'track {track_index}: '
+
+    writer = _TrackWriter(write, label)
     running_status_byte = None
-    for msg in fix_end_of_track(track):
+
+    for index, msg in enumerate(fix_end_of_track(track)):
         if not isinstance(msg.time, Integral):
-            raise ValueError('message time must be int in MIDI file')
+            raise ValueError(
+                f'{label}message time must be int in MIDI file '
+                f'(event {index}, time={msg.time!r})')
         if msg.time < 0:
-            raise ValueError('message time must be non-negative in MIDI file')
+            raise ValueError(
+                f'{label}message time must be non-negative in MIDI file '
+                f'(event {index}, time={msg.time!r})')
 
         if msg.is_realtime:
-            raise ValueError('realtime messages are not allowed in MIDI files')
+            raise ValueError(
+                f'{label}realtime messages are not allowed in MIDI files '
+                f'(event {index}, type={msg.type!r})')
 
-        data.extend(encode_variable_int(msg.time))
+        writer.emit(encode_variable_int(msg.time))
 
         if msg.is_meta:
-            data.extend(msg.bytes())
+            writer.emit(msg.bytes())
             running_status_byte = None
         elif msg.type == 'sysex':
-            data.append(0xf0)
+            writer.emit((0xf0,))
             # length (+ 1 for end byte (0xf7))
-            data.extend(encode_variable_int(len(msg.data) + 1))
-            data.extend(msg.data)
-            data.append(0xf7)
+            writer.emit(encode_variable_int(len(msg.data) + 1))
+            # Feed the payload in slices so a large sysex message is
+            # not copied into the buffer all at once.
+            for start in range(0, len(msg.data), WRITE_BUFFER_SIZE):
+                writer.emit(msg.data[start:start + WRITE_BUFFER_SIZE])
+            writer.emit((0xf7,))
             running_status_byte = None
         else:
             msg_bytes = msg.bytes()
             status_byte = msg_bytes[0]
 
             if status_byte == running_status_byte:
-                data.extend(msg_bytes[1:])
+                writer.emit(msg_bytes[1:])
             else:
-                data.extend(msg_bytes)
+                writer.emit(msg_bytes)
 
             if status_byte < 0xf0:
                 running_status_byte = status_byte
             else:
                 running_status_byte = None
 
-    write_chunk(outfile, b'MTrk', data)
+    writer.flush()
+    return writer.total
+
+
+def _rollback_track(outfile, start):
+    """Remove a partially written track from a seekable file.
+
+    Truncating is the only safe rollback. If that is not possible an
+    impossible chunk length is written over the length field, so the
+    file cannot be mistaken for a MIDI file with a complete track.
+    """
+    truncate = getattr(outfile, 'truncate', None)
+    if truncate is not None:
+        try:
+            outfile.seek(start)
+            truncate(start)
+            return
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    try:
+        outfile.seek(start + 4)
+        outfile.write(b'\xff\xff\xff\xff')
+    except (OSError, ValueError, AttributeError):
+        # There is nothing more we can do. The caller still gets the
+        # original exception.
+        pass
+
+
+def _write_track_seekable(outfile, track, track_index, start):
+    """Write a track to a seekable file, backfilling the chunk length."""
+    label = '' if track_index is None else f'track {track_index}: '
+
+    try:
+        _write_all(outfile, b'MTrk', label, 0)
+        _write_all(outfile, b'\x00\x00\x00\x00', label, 4)
+
+        written = [0]
+
+        def write_events(data):
+            _write_all(outfile, data, label, 8 + written[0])
+            written[0] += len(data)
+
+        length = _encode_track(track, write_events, track_index)
+
+        try:
+            end = outfile.tell()
+            outfile.seek(start + 4)
+        except (OSError, ValueError) as exc:
+            raise OSError(
+                f'{label}cannot backfill MTrk length at byte {start + 4}: '
+                f'{exc}') from exc
+
+        _write_all(outfile, struct.pack('>L', length), label, 4)
+        outfile.seek(end)
+
+        flush = getattr(outfile, 'flush', None)
+        if flush is not None:
+            try:
+                flush()
+            except (OSError, ValueError) as exc:
+                raise OSError(
+                    f'{label}flush failed after writing {length} track '
+                    f'bytes: {exc}') from exc
+    except BaseException:
+        _rollback_track(outfile, start)
+        raise
+
+
+def _write_track_spooled(outfile, track, track_index):
+    """Write a track to a non-seekable file.
+
+    The chunk length cannot be backfilled here, so the encoded track
+    is staged in a spooled temporary file first. Only
+    NON_SEEKABLE_SPOOL_SIZE bytes are kept in memory; anything beyond
+    that spills to disk.
+    """
+    label = '' if track_index is None else f'track {track_index}: '
+
+    with tempfile.SpooledTemporaryFile(
+            max_size=NON_SEEKABLE_SPOOL_SIZE, mode='w+b') as spool:
+        staged = [0]
+
+        def write_staged(data):
+            try:
+                spool.write(data)
+            except (OSError, ValueError) as exc:
+                raise OSError(
+                    f'{label}cannot stage track data after '
+                    f'{staged[0]} bytes: {exc}') from exc
+            staged[0] += len(data)
+
+        length = _encode_track(track, write_staged, track_index)
+
+        try:
+            spool.seek(0)
+        except (OSError, ValueError) as exc:
+            raise OSError(
+                f'{label}cannot rewind staged track data: {exc}') from exc
+
+        _write_all(outfile, b'MTrk', label, 0)
+        _write_all(outfile, struct.pack('>L', length), label, 4)
+
+        position = 8
+        while True:
+            try:
+                data = spool.read(WRITE_BUFFER_SIZE)
+            except (OSError, ValueError) as exc:
+                raise OSError(
+                    f'{label}cannot read staged track data at byte '
+                    f'{position}: {exc}') from exc
+            if not data:
+                break
+            _write_all(outfile, data, label, position)
+            position += len(data)
+
+        flush = getattr(outfile, 'flush', None)
+        if flush is not None:
+            try:
+                flush()
+            except (OSError, ValueError) as exc:
+                raise OSError(
+                    f'{label}flush failed after writing {length} track '
+                    f'bytes: {exc}') from exc
+
+
+def write_track(outfile, track, track_index=None):
+    """Write a single track as an MTrk chunk.
+
+    The track is encoded and written incrementally, so peak memory does
+    not grow with the length of the track.
+
+    Seekable files have the chunk length backfilled after the events
+    have been written. Non-seekable files are staged in a bounded,
+    possibly disk-backed, temporary buffer first.
+
+    If writing fails, a seekable file is rolled back to where the track
+    started so it cannot be mistaken for a file containing a complete
+    track.
+    """
+    label = '' if track_index is None else f'track {track_index}: '
+
+    if not _is_seekable(outfile):
+        _write_track_spooled(outfile, track, track_index)
+        return
+
+    try:
+        start = outfile.tell()
+    except (OSError, ValueError, AttributeError) as exc:
+        raise OSError(
+            f'{label}cannot determine output position: {exc}') from exc
+
+    _write_track_seekable(outfile, track, track_index, start)
 
 
 def get_seconds_per_tick(tempo, ticks_per_beat):
@@ -467,8 +736,11 @@ class MidiFile:
 
             write_chunk(outfile, b'MThd', header)
 
-            for track in self.tracks:
-                write_track(outfile, track)
+            # write_track() flushes after each track, so a failure in
+            # a later track leaves the earlier complete tracks on disk
+            # instead of buffered somewhere invisible.
+            for index, track in enumerate(self.tracks):
+                write_track(outfile, track, track_index=index)
 
     def print_tracks(self, meta_only=False):
         """Prints out all messages in a .midi file.
