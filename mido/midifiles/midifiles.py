@@ -37,6 +37,15 @@ DEFAULT_TICKS_PER_BEAT = 480
 # Maximum message length to attempt to read.
 MAX_MESSAGE_LENGTH = 1000000
 
+# Maximum payload length in bytes of an unknown (non-MTrk) chunk we will
+# read. A chunk header declaring more than this is treated as corrupt
+# rather than blindly allocated.
+MAX_UNKNOWN_CHUNK_LENGTH = 100 * 1024 * 1024
+
+# Chunk types defined by the Standard MIDI File specification. These may
+# not be used as private/unknown chunk identifiers.
+RESERVED_CHUNK_NAMES = (b'MThd', b'MTrk')
+
 
 def print_byte(byte, pos=0):
     char = chr(byte)
@@ -91,8 +100,13 @@ def _dbg(text=''):
 
 def read_chunk_header(infile):
     header = infile.read(8)
-    if len(header) < 8:
+    if len(header) == 0:
+        # Clean end of file.
         raise EOFError
+    if len(header) < 8:
+        raise EOFError(
+            'truncated chunk header at byte {}: expected 8 bytes, '
+            'got {}'.format(infile.tell(), len(header)))
 
     # TODO: check for b'RIFF' and switch endian?
 
@@ -108,7 +122,9 @@ def read_file_header(infile):
         data = infile.read(size)
 
         if len(data) < 6:
-            raise EOFError
+            raise EOFError(
+                'truncated MThd payload: header declares {} bytes, '
+                'got {} (minimum is 6)'.format(size, len(data)))
 
         return struct.unpack('>hhh', data[:6])
 
@@ -167,13 +183,8 @@ def read_meta_message(infile, delta):
     return build_meta_message(meta_type, data, delta)
 
 
-def read_track(infile, debug=False, clip=False):
+def _read_track_data(infile, size, debug=False, clip=False):
     track = MidiTrack()
-
-    name, size = read_chunk_header(infile)
-
-    if name != b'MTrk':
-        raise OSError('no MTrk header at start of track')
 
     if debug:
         _dbg(f'-> size={size}')
@@ -224,6 +235,119 @@ def read_track(infile, debug=False, clip=False):
             _dbg()
 
     return track
+
+
+def read_track(infile, debug=False, clip=False):
+    name, size = read_chunk_header(infile)
+
+    if name != b'MTrk':
+        raise OSError('no MTrk header at start of track')
+
+    try:
+        return _read_track_data(infile, size, debug=debug, clip=clip)
+    except EOFError as e:
+        if e.args:
+            raise
+        # A bare EOFError means the stream ran out inside the track.
+        # Only add context at a clean end of file; a partial read keeps
+        # its original error so callers relying on bare EOFError still
+        # see one.
+        if infile.tell() == _stream_size(infile):
+            raise EOFError(
+                'truncated MTrk chunk: header declares {} bytes but '
+                'the file ended early'.format(size)) from e
+        raise
+
+
+def _stream_size(infile):
+    """Return the total size of a seekable stream, else None."""
+    try:
+        position = infile.tell()
+        end = infile.seek(0, 2)
+        infile.seek(position)
+    except (OSError, AttributeError):
+        return None
+    return end
+
+
+class UnknownChunk:
+    """A non-MTrk chunk from a Standard MIDI File, stored verbatim.
+
+    Some sequencers insert private chunks (for example project notes)
+    between the standard MIDI tracks. These are kept as raw bytes so
+    files can be round-tripped without data loss.
+
+    Attributes:
+        name: the original four-byte chunk identifier, for example
+            ``b'NOTE'``.
+        data: the chunk payload, exactly as it appeared in the file
+            (without its 8-byte header).
+        track: position relative to the tracks: the index of the
+            ``MTrk`` chunk this chunk appears before. A chunk before
+            the first track has ``track=0``; a chunk after every track
+            has ``track == len(mid.tracks)``.
+    """
+
+    def __init__(self, name, data, track=0):
+        if not isinstance(name, bytes) or len(name) != 4:
+            raise ValueError('chunk name must be exactly 4 bytes')
+        if name in RESERVED_CHUNK_NAMES:
+            raise ValueError(
+                f'{name!r} is a reserved Standard MIDI File chunk '
+                'name and cannot be used for an unknown chunk')
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError('chunk data must be bytes')
+        if not isinstance(track, Integral) or track < 0:
+            raise ValueError('track must be a non-negative integer')
+
+        self.name = name
+        self.data = bytes(data)
+        self.track = track
+
+    def __eq__(self, other):
+        if not isinstance(other, UnknownChunk):
+            return NotImplemented
+        return (self.name == other.name
+                and self.data == other.data
+                and self.track == other.track)
+
+    def __hash__(self):
+        return hash((self.name, self.data, self.track))
+
+    def __repr__(self):
+        return '{}(name={!r}, data={!r}, track={})'.format(
+            self.__class__.__name__,
+            self.name,
+            self.data,
+            self.track)
+
+
+def read_unknown_chunk(infile, name, size):
+    """Read the payload of a non-MTrk chunk verbatim.
+
+    The chunk identifier ``name`` and declared ``size`` come from a
+    chunk header that has already been read.
+    """
+    if name in RESERVED_CHUNK_NAMES:
+        raise OSError(
+            f'unexpected {name!r} chunk outside of its standard '
+            'position at byte {}'.format(infile.tell()))
+
+    if size > MAX_UNKNOWN_CHUNK_LENGTH:
+        raise OSError(
+            'unknown chunk {!r} at byte {} declares a payload length '
+            'of {} bytes, which exceeds the maximum of {}'.format(
+                name, infile.tell(), size,
+                MAX_UNKNOWN_CHUNK_LENGTH))
+
+    data = infile.read(size)
+    if len(data) < size:
+        raise EOFError(
+            'truncated unknown chunk {!r} at byte {}: header declares '
+            '{} payload bytes, got {}'.format(
+                name, infile.tell(), size, len(data)))
+
+    return data
 
 
 def write_chunk(outfile, name, data):
@@ -294,7 +418,9 @@ class MidiFile:
                  charset='latin1',
                  debug=False,
                  clip=False,
-                 tracks=None
+                 tracks=None,
+                 keep_unknown_chunks=True,
+                 unknown_chunks=None
                  ):
 
         self.filename = filename
@@ -303,13 +429,25 @@ class MidiFile:
         self.charset = charset
         self.debug = debug
         self.clip = clip
+        # Whether unknown chunks are written back by save(). Reading
+        # always records them regardless of this setting.
+        self.keep_unknown_chunks = keep_unknown_chunks
 
         self.tracks = []
+        self.unknown_chunks = []
         self._merged_track = None
 
         if type not in range(3):
             raise ValueError(
                 f'invalid format {format} (must be 0, 1 or 2)')
+
+        if unknown_chunks is not None:
+            for chunk in unknown_chunks:
+                if not isinstance(chunk, UnknownChunk):
+                    raise TypeError(
+                        'unknown_chunks must contain UnknownChunk '
+                        f'objects, got {type(chunk).__name__}')
+            self.unknown_chunks = list(unknown_chunks)
 
         if tracks is not None:
             self.tracks = tracks
@@ -364,14 +502,82 @@ class MidiFile:
                     self.type, num_tracks, self.ticks_per_beat))
                 _dbg()
 
-            for i in range(num_tracks):
-                if self.debug:
-                    _dbg(f'Track {i}:')
+            # The number of MTrk chunks is determined by the header.
+            # Any other chunk type is a private/unknown chunk and is
+            # stored verbatim with its position relative to the tracks.
+            seen_chunk_names = {b'MThd'}
+            tracks_read = 0
 
-                self.tracks.append(read_track(infile,
-                                              debug=self.debug,
-                                              clip=self.clip))
-                # TODO: used to ignore EOFError. I hope things still work.
+            while tracks_read < num_tracks:
+                try:
+                    name, size = read_chunk_header(infile)
+                except EOFError as e:
+                    if e.args:
+                        raise
+                    raise EOFError(
+                        'file ended after track {} of {}: the header '
+                        'declares {} MTrk chunks'.format(
+                            tracks_read, num_tracks, num_tracks)) from e
+
+                if name == b'MTrk':
+                    if self.debug:
+                        _dbg(f'Track {tracks_read}:')
+
+                    self.tracks.append(
+                        _read_track_data(infile, size,
+                                         debug=self.debug,
+                                         clip=self.clip))
+                    tracks_read += 1
+                    seen_chunk_names.add(name)
+                else:
+                    self._read_unknown_chunk(infile, name, size,
+                                             tracks_read, seen_chunk_names)
+
+            # Only trailing unknown chunks are legal after the last
+            # declared track. An extra MTrk means the header count and
+            # the file contents disagree.
+            while True:
+                try:
+                    name, size = read_chunk_header(infile)
+                except EOFError as e:
+                    if e.args:
+                        # Truncated chunk header: real corrupt data.
+                        raise
+                    # Clean end of file.
+                    break
+
+                if name == b'MTrk':
+                    raise OSError(
+                        'unexpected MTrk chunk at byte {}: the header '
+                        'declares only {} tracks'.format(
+                            infile.tell(), num_tracks))
+
+                self._read_unknown_chunk(infile, name, size,
+                                         num_tracks, seen_chunk_names)
+
+    def _read_unknown_chunk(self, infile, name, size, track_position,
+                            seen_chunk_names):
+        if self.debug:
+            _dbg(f'Unknown chunk {name!r} before track {track_position}:')
+
+        # The payload reader rejects reserved chunk names and forged or
+        # truncated lengths before we check for duplicates, so every
+        # structural problem gets its own context.
+        data = read_unknown_chunk(infile, name, size)
+
+        if name in seen_chunk_names:
+            raise OSError(
+                'duplicate chunk identifier {!r} at byte {}: chunk '
+                'identifiers must be unique within a file'.format(
+                    name, infile.tell()))
+
+        self.unknown_chunks.append(
+            UnknownChunk(name, data, track_position))
+        seen_chunk_names.add(name)
+
+        if self.debug:
+            _dbg(f'-> {len(data)} bytes')
+            _dbg()
 
     @property
     def length(self):
@@ -437,7 +643,7 @@ class MidiFile:
             else:
                 yield msg
 
-    def save(self, filename=None, file=None):
+    def save(self, filename=None, file=None, keep_unknown_chunks=None):
         """Save to a file.
 
         If file is passed the data will be saved to that file. This is
@@ -445,21 +651,30 @@ class MidiFile:
 
         If filename is passed the data will be saved to that file.
 
+        Unknown chunks read from the source file are written back in
+        their original positions when ``keep_unknown_chunks`` is True.
+        Pass ``keep_unknown_chunks=False`` to drop them, or leave it as
+        None (the default) to use the value set when the MidiFile was
+        created.
+
         Raises ValueError if both file and filename are None,
         or if a type 0 file has != one track.
         """
         if self.type == 0 and len(self.tracks) != 1:
             raise ValueError('type 0 file must have exactly 1 track')
 
+        if keep_unknown_chunks is None:
+            keep_unknown_chunks = self.keep_unknown_chunks
+
         if file is not None:
-            self._save(file)
+            self._save(file, keep_unknown_chunks)
         elif filename is not None:
             with open(filename, 'wb') as file:
-                self._save(file)
+                self._save(file, keep_unknown_chunks)
         else:
             raise ValueError('requires filename or file')
 
-    def _save(self, outfile):
+    def _save(self, outfile, keep_unknown_chunks):
         with meta_charset(self.charset):
             header = struct.pack('>hhh', self.type,
                                  len(self.tracks),
@@ -467,8 +682,45 @@ class MidiFile:
 
             write_chunk(outfile, b'MThd', header)
 
-            for track in self.tracks:
+            chunks_by_position = self._chunks_by_position(
+                keep_unknown_chunks)
+
+            # Write tracks and the unknown chunks preceding each one.
+            for index, track in enumerate(self.tracks):
+                for chunk in chunks_by_position.get(index, []):
+                    write_chunk(outfile, chunk.name, chunk.data)
                 write_track(outfile, track)
+
+            # Unknown chunks following the last track.
+            for chunk in chunks_by_position.get(len(self.tracks), []):
+                write_chunk(outfile, chunk.name, chunk.data)
+
+    def _chunks_by_position(self, keep_unknown_chunks):
+        if not keep_unknown_chunks or not self.unknown_chunks:
+            return {}
+
+        chunks_by_position = {}
+        seen_names = set()
+
+        for chunk in self.unknown_chunks:
+            if not isinstance(chunk, UnknownChunk):
+                raise TypeError(
+                    'unknown_chunks must contain UnknownChunk objects, '
+                    f'got {type(chunk).__name__}')
+            if chunk.name in seen_names:
+                raise ValueError(
+                    f'duplicate chunk identifier {chunk.name!r}: chunk '
+                    'identifiers must be unique within a file')
+            if chunk.track > len(self.tracks):
+                raise ValueError(
+                    f'unknown chunk {chunk.name!r} is positioned before '
+                    f'track {chunk.track}, but the file only has '
+                    f'{len(self.tracks)} tracks')
+
+            seen_names.add(chunk.name)
+            chunks_by_position.setdefault(chunk.track, []).append(chunk)
+
+        return chunks_by_position
 
     def print_tracks(self, meta_only=False):
         """Prints out all messages in a .midi file.

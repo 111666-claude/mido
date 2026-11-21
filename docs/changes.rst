@@ -16,6 +16,18 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* New MidiFile: preserve non-MTrk (private/unknown) chunks. Chunks such
+  as the project-note blocks inserted by some sequencers are read
+  verbatim into ``unknown_chunks`` as ``UnknownChunk`` objects, with
+  their four-byte identifier, raw payload and position relative to the
+  tracks, and written back in place by ``save()``. Pass
+  ``keep_unknown_chunks=False`` to drop them. Truncated headers or
+  payloads, forged chunk lengths, duplicate identifiers and unexpected
+  reserved chunks now raise errors with descriptive context.
+
 1.3.3 (2024-10-25)
 ^^^^^^^^^^^^^^^^^^
 

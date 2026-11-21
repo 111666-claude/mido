@@ -133,6 +133,47 @@ if you attempt to save a file with no tracks or with more than one
 track.
 
 
+Unknown and Private Chunks
+--------------------------
+
+The Standard MIDI File specification only defines two chunk types:
+the ``MThd`` header chunk and ``MTrk`` track chunks. Some sequencers
+nevertheless insert private chunks between the tracks, for example to
+store project notes.
+
+Mido reads these chunks without interpreting them and keeps their raw
+bytes in ``mid.unknown_chunks`` so the file can be re-saved without
+data loss. Each entry is an :class:`~mido.UnknownChunk` with:
+
+* ``name``: the original four-byte chunk identifier, for example
+  ``b'NOTE'``
+* ``data``: the payload exactly as it appeared in the file
+* ``track``: the position relative to the tracks, namely the index of
+  the ``MTrk`` chunk the chunk appears before. A chunk before the
+  first track has ``track=0``; a chunk after every track has
+  ``track == len(mid.tracks)``
+
+The number of tracks is always taken from the ``MThd`` header; unknown
+chunks never become tracks.
+
+Unknown chunks are written back in their original positions by
+default. Pass ``keep_unknown_chunks=False`` to ``MidiFile`` or
+``save()`` to drop them::
+
+    # Keep the private chunks while editing the tracks (the default):
+    mid = MidiFile('song.mid')
+    mid.save('song-copy.mid')
+
+    # Write a standard-conformant file without the private chunks:
+    mid.save('clean.mid', keep_unknown_chunks=False)
+
+Files without unknown chunks are written exactly as before, and the
+``MidiTrack`` API is unchanged. Chunk identifiers must be unique and
+may not reuse the reserved ``MThd`` or ``MTrk`` names; truncated
+headers or payloads and declared lengths that exceed the safety limit
+raise an error with the offending chunk and file offset.
+
+
 Playback Length
 ---------------
 
