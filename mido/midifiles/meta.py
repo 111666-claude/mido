@@ -14,14 +14,24 @@ TODO:
      - copy().
      - expose _key_signature_encode/decode?
 """
+import codecs
 import math
 import struct
 from contextlib import contextmanager
+from contextvars import ContextVar
 from numbers import Integral
 
 from ..messages import BaseMessage, check_time
 
-_charset = 'latin1'
+# The charset used when encoding/decoding meta text is stored in a
+# ContextVar instead of a plain module global. Each MidiFile read/write
+# activates its own charset through meta_charset(), which means:
+#   - contexts (and therefore threads) are isolated: interleaved reads
+#     of files using different charsets never leak into each other;
+#   - nested contexts work like a stack;
+#   - the previous value is restored even when the block exits via an
+#     exception.
+_charset = ContextVar('charset', default='latin1')
 
 
 class KeySignatureError(Exception):
@@ -145,20 +155,24 @@ def decode_variable_int(value):
 
 
 def encode_string(string):
-    return list(bytearray(string.encode(_charset)))
+    return list(bytearray(string.encode(_charset.get())))
 
 
 def decode_string(data):
-    return bytearray(data).decode(_charset)
+    return bytearray(data).decode(_charset.get())
 
 
 @contextmanager
 def meta_charset(tmp_charset):
-    global _charset
-    old = _charset
-    _charset = tmp_charset
-    yield
-    _charset = old
+    # Validate the name eagerly (and with the MidiFile call on the
+    # traceback) instead of failing deep inside the first string
+    # conversion, which could leave callers without a clear context.
+    codecs.lookup(tmp_charset)
+    token = _charset.set(tmp_charset)
+    try:
+        yield
+    finally:
+        _charset.reset(token)
 
 
 def check_int(value, low, high):
