@@ -41,6 +41,50 @@ and messages and save the file back by calling the ``save()``
 method. (More on this below.)
 
 
+Reading Untrusted Files
+-----------------------
+
+A malicious MIDI file can declare gigantic tracks or SysEx messages, or
+contain a variable-length quantity (VLQ) that never terminates. Parsing
+such a file can exhaust memory or take forever.
+
+Pass a :class:`~mido.ReadBudget` to cap the resources the parser is
+allowed to use. Every limit is optional and is checked *before* the
+corresponding bytes are read or memory is allocated::
+
+    from mido import MidiFile, ReadBudget, SecurityError
+
+    budget = ReadBudget(
+        max_bytes=10 * 1024 * 1024,   # at most 10 MiB of input
+        max_tracks=100,              # at most 100 tracks
+        max_track_length=1_000_000,  # at most 1 MB per track
+        max_event_length=100_000,    # at most 100 kB per SysEx/meta event
+        max_events=1_000_000,        # at most one million events
+    )
+
+    try:
+        mid = MidiFile('untrusted.mid', budget=budget)
+    except SecurityError as error:
+        # The exception reports where the limit was hit.
+        print('rejected at track', error.track, 'offset', error.offset)
+
+``SecurityError`` is a subclass of ``OSError``, so existing code that
+catches ``OSError`` keeps working. When no budget is given, parsing
+behaves exactly as before.
+
+The budget also works with in-memory and non-seekable streams; the
+stream is never read up front::
+
+    import io
+    mid = MidiFile(file=io.BytesIO(data), budget=budget)
+
+By default a budget also caps VLQs at 4 bytes, as required by the MIDI
+specification. A non-terminating or over-long VLQ is therefore rejected
+after at most four bytes instead of spinning until end of input. Pass
+``max_vlq_length=None`` if you need to accept non-standard longer
+quantities.
+
+
 Iterating Over Messages
 -----------------------
 

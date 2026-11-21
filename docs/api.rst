@@ -169,6 +169,14 @@ Standard MIDI Files
    :inherited-members:
    :undoc-members:
 
+.. autoclass:: ReadBudget
+   :members:
+   :undoc-members:
+
+.. autoclass:: SecurityError
+   :members:
+   :undoc-members:
+
 .. autoclass:: MidiTrack
    :members:
    :inherited-members:

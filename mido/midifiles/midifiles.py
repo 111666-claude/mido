@@ -26,6 +26,7 @@ from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
+from .security import ReadBudget, _CountingReader
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
 
@@ -61,20 +62,40 @@ class DebugFileWrapper:
     def tell(self):
         return self.file.tell()
 
+    def __getattr__(self, name):
+        # Forward everything else (budget, tracking state, ...) to
+        # the wrapped counting reader.
+        return getattr(self.file, name)
 
-def read_byte(self):
-    byte = self.read(1)
+    def __setattr__(self, name, value):
+        # Internal attributes are stored normally; parser state such as
+        # track/track_end is forwarded to the counting reader.
+        if name == 'file' or name in self.__dict__:
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.file, name, value)
+
+
+def read_byte(reader):
+    byte = reader.read(1)
     if byte == b'':
         raise EOFError
     else:
         return ord(byte)
 
 
-def read_bytes(infile, size):
-    if size > MAX_MESSAGE_LENGTH:
-        raise OSError('Message length {} exceeds maximum length {}'.format(
-            size, MAX_MESSAGE_LENGTH))
-    return [read_byte(infile) for _ in range(size)]
+def read_bytes(reader, size, kind='message'):
+    budget = reader.budget
+
+    if budget is None:
+        if size > MAX_MESSAGE_LENGTH:
+            raise OSError('Message length {} exceeds maximum length {}'.format(
+                size, MAX_MESSAGE_LENGTH))
+    else:
+        budget.check_event_length(reader, size, kind)
+        reader.check_fits_track(size, kind)
+
+    return [read_byte(reader) for _ in range(size)]
 
 
 def _dbg(text=''):
@@ -113,7 +134,7 @@ def read_file_header(infile):
         return struct.unpack('>hhh', data[:6])
 
 
-def read_message(infile, status_byte, peek_data, delta, clip=False):
+def read_message(reader, status_byte, peek_data, delta, clip=False):
     try:
         spec = SPEC_BY_STATUS[status_byte]
     except LookupError as le:
@@ -121,7 +142,7 @@ def read_message(infile, status_byte, peek_data, delta, clip=False):
 
     # Subtract 1 for status byte.
     size = spec['length'] - 1 - len(peek_data)
-    data_bytes = peek_data + read_bytes(infile, size)
+    data_bytes = peek_data + read_bytes(reader, size)
 
     if clip:
         data_bytes = [byte if byte < 127 else 127 for byte in data_bytes]
@@ -133,9 +154,9 @@ def read_message(infile, status_byte, peek_data, delta, clip=False):
     return Message.from_bytes([status_byte] + data_bytes, time=delta)
 
 
-def read_sysex(infile, delta, clip=False):
-    length = read_variable_int(infile)
-    data = read_bytes(infile, length)
+def read_sysex(reader, delta, clip=False):
+    length = read_variable_int(reader)
+    data = read_bytes(reader, length, kind='SysEx')
 
     # Strip start and end bytes.
     # TODO: is this necessary?
@@ -150,72 +171,104 @@ def read_sysex(infile, delta, clip=False):
     return Message('sysex', data=data, time=delta)
 
 
-def read_variable_int(infile):
+def read_variable_int(reader):
     delta = 0
+    budget = reader.budget
+    octets = 0
 
     while True:
-        byte = read_byte(infile)
+        if budget is not None:
+            budget.check_vlq(reader, octets)
+            # The quantity must terminate inside the current track.
+            if reader.track_end is not None \
+                    and reader.bytes_read >= reader.track_end:
+                reader.fail(
+                    'variable-length quantity runs past the end of track')
+
+        byte = read_byte(reader)
+        octets += 1
         delta = (delta << 7) | (byte & 0x7f)
         if byte < 0x80:
             return delta
 
 
-def read_meta_message(infile, delta):
-    meta_type = read_byte(infile)
-    length = read_variable_int(infile)
-    data = read_bytes(infile, length)
+def read_meta_message(reader, delta):
+    meta_type = read_byte(reader)
+    length = read_variable_int(reader)
+    data = read_bytes(reader, length, kind='meta message')
     return build_meta_message(meta_type, data, delta)
 
 
-def read_track(infile, debug=False, clip=False):
+def read_track(reader, track_number, debug=False, clip=False):
     track = MidiTrack()
+    reader.track = track_number
+    reader.track_end = None
 
-    name, size = read_chunk_header(infile)
+    name, size = read_chunk_header(reader)
 
     if name != b'MTrk':
         raise OSError('no MTrk header at start of track')
+
+    if reader.budget is not None:
+        reader.budget.check_track_length(reader, size)
+
+    # Absolute position just past the track payload.
+    reader.track_end = reader.bytes_read + size
 
     if debug:
         _dbg(f'-> size={size}')
         _dbg()
 
-    start = infile.tell()
+    start = reader.tell()
     last_status = None
 
     while True:
         # End of track reached.
-        if infile.tell() - start == size:
+        if reader.tell() - start == size:
             break
 
-        if debug:
-            _dbg('Message:')
+        # Count the event before reading anything so the total event
+        # limit is enforced before the corresponding allocation happens.
+        if reader.budget is not None:
+            reader.budget.check_event(reader)
 
-        delta = read_variable_int(infile)
+        try:
+            if debug:
+                _dbg('Message:')
 
-        if debug:
-            _dbg(f'-> delta={delta}')
+            delta = read_variable_int(reader)
 
-        status_byte = read_byte(infile)
+            if debug:
+                _dbg(f'-> delta={delta}')
 
-        if status_byte < 0x80:
-            if last_status is None:
-                raise OSError('running status without last_status')
-            peek_data = [status_byte]
-            status_byte = last_status
-        else:
-            if status_byte != 0xff:
-                # Meta messages don't set running status.
-                last_status = status_byte
-            peek_data = []
+            status_byte = read_byte(reader)
 
-        if status_byte == 0xff:
-            msg = read_meta_message(infile, delta)
-        elif status_byte in [0xf0, 0xf7]:
-            # TODO: I'm not quite clear on the difference between
-            # f0 and f7 events.
-            msg = read_sysex(infile, delta, clip)
-        else:
-            msg = read_message(infile, status_byte, peek_data, delta, clip)
+            if status_byte < 0x80:
+                if last_status is None:
+                    raise OSError('running status without last_status')
+                peek_data = [status_byte]
+                status_byte = last_status
+            else:
+                if status_byte != 0xff:
+                    # Meta messages don't set running status.
+                    last_status = status_byte
+                peek_data = []
+
+            if status_byte == 0xff:
+                msg = read_meta_message(reader, delta)
+            elif status_byte in [0xf0, 0xf7]:
+                # TODO: I'm not quite clear on the difference between
+                # f0 and f7 events.
+                msg = read_sysex(reader, delta, clip)
+            else:
+                msg = read_message(reader, status_byte, peek_data,
+                                   delta, clip)
+        except EOFError:
+            if reader.budget is not None:
+                reader.fail(
+                    'unexpected end of input: declared track length '
+                    'exceeds remaining input')
+            raise
 
         track.append(msg)
 
@@ -223,6 +276,7 @@ def read_track(infile, debug=False, clip=False):
             _dbg(f'-> {msg!r}')
             _dbg()
 
+    reader.track_end = None
     return track
 
 
@@ -294,7 +348,8 @@ class MidiFile:
                  charset='latin1',
                  debug=False,
                  clip=False,
-                 tracks=None
+                 tracks=None,
+                 budget=None
                  ):
 
         self.filename = filename
@@ -303,6 +358,11 @@ class MidiFile:
         self.charset = charset
         self.debug = debug
         self.clip = clip
+
+        if budget is not None and not isinstance(budget, ReadBudget):
+            raise TypeError(
+                'budget must be a ReadBudget instance or None')
+        self.budget = budget
 
         self.tracks = []
         self._merged_track = None
@@ -348,8 +408,9 @@ class MidiFile:
         return track
 
     def _load(self, infile):
+        reader = _CountingReader(infile, budget=self.budget)
         if self.debug:
-            infile = DebugFileWrapper(infile)
+            reader = DebugFileWrapper(reader)
 
         with meta_charset(self.charset):
             if self.debug:
@@ -357,7 +418,10 @@ class MidiFile:
 
             (self.type,
              num_tracks,
-             self.ticks_per_beat) = read_file_header(infile)
+             self.ticks_per_beat) = read_file_header(reader)
+
+            if self.budget is not None:
+                self.budget.check_track_count(reader, num_tracks)
 
             if self.debug:
                 _dbg('-> type={}, tracks={}, ticks_per_beat={}'.format(
@@ -368,7 +432,7 @@ class MidiFile:
                 if self.debug:
                     _dbg(f'Track {i}:')
 
-                self.tracks.append(read_track(infile,
+                self.tracks.append(read_track(reader, i,
                                               debug=self.debug,
                                               clip=self.clip))
                 # TODO: used to ignore EOFError. I hope things still work.
