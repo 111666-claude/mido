@@ -16,6 +16,19 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* New ``MidiFile.to_type0()`` / ``to_type1()`` methods and module-level
+  ``to_type0()`` / ``to_type1()`` functions to convert between type 0
+  (single track) and type 1 (multi track) Standard MIDI Files.
+  Type 1 to type 0 merges tracks while preserving global timing and
+  same-tick event order; type 0 to type 1 splits channel messages into one
+  track per channel and keeps global meta messages, SysEx and unknown meta
+  messages in a dedicated first track. Type 2 files raise ``TypeError`` and
+  non-integer or negative times raise ``ValueError``. The source file is
+  never modified.
+
 1.3.1 (2023-12-14)
 ^^^^^^^^^^^^^^^^^^
 

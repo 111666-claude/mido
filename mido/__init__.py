@@ -33,6 +33,8 @@ MIDI files:
     bpm2tempo()  -- convert beats per minute to MIDI file tempo
     tempo2bpm()  -- convert MIDI file tempo to beats per minute
     merge_tracks(tracks)  -- merge tracks into one track
+    to_type0(mid)  -- convert a MIDI file to type 0 (single track)
+    to_type1(mid)  -- convert a MIDI file to type 1 (multi track)
 
 SYX files:
 
@@ -116,6 +118,8 @@ from .midifiles import (
     second2tick,
     tempo2bpm,
     tick2second,
+    to_type0,
+    to_type1,
 )
 from .parser import Parser, parse, parse_all
 from .syx import read_syx_file, write_syx_file
@@ -146,6 +150,8 @@ __all__ = [
     "sockets",
     "tempo2bpm",
     "tick2second",
+    "to_type0",
+    "to_type1",
     "version_info",
     "write_syx_file",
 ]

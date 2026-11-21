@@ -133,6 +133,37 @@ if you attempt to save a file with no tracks or with more than one
 track.
 
 
+Converting Between File Types
+-----------------------------
+
+You can convert between type 0 and type 1 with the :py:meth:`MidiFile.to_type0`
+and :py:meth:`MidiFile.to_type1` methods (or the module-level
+:py:func:`to_type0` and :py:func:`to_type1` functions). Both return a new
+``MidiFile`` and never modify the source file::
+
+    from mido import MidiFile
+
+    # A multi-track arrangement saved as type 1, merged into the single
+    # track required by a type 0-only sound source.
+    type0 = MidiFile('arrangement.mid').to_type0()
+    type0.save('arrangement-type0.mid')
+
+    # The reverse direction: channel messages are split back into one
+    # track per MIDI channel, while tempo, time signature and other
+    # global meta messages go into a dedicated first track.
+    type1 = type0.to_type1()
+
+Merging to type 0 keeps the global timing intact and preserves the order of
+events that occur on the same tick. When splitting to type 1, SysEx dumps and
+unknown meta messages are kept in the dedicated first track instead of being
+dropped, existing ``end_of_track`` messages are normalized, and empty tracks
+are removed. Duplicate track names are made unique with a numeric suffix.
+
+Type 2 (asynchronous) files cannot be converted, because their tracks do not
+share a common time line; calling either conversion on one raises
+``TypeError``. Non-integer or negative message times raise ``ValueError``.
+
+
 Playback Length
 ---------------
 

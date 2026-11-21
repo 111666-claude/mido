@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+from .formats import to_type0, to_type1
 from .meta import KeySignatureError, MetaMessage, UnknownMetaMessage
 from .midifiles import MidiFile
 from .tracks import MidiTrack, merge_tracks
@@ -18,4 +19,6 @@ __all__ = [
     "second2tick",
     "tempo2bpm",
     "tick2second",
+    "to_type0",
+    "to_type1",
 ]

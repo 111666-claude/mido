@@ -25,6 +25,7 @@ import time
 from numbers import Integral
 
 from ..messages import SPEC_BY_STATUS, Message
+from .formats import to_type0, to_type1
 from .meta import MetaMessage, build_meta_message, encode_variable_int, meta_charset
 from .tracks import MidiTrack, fix_end_of_track, merge_tracks
 from .units import tick2second
@@ -346,6 +347,25 @@ class MidiFile:
         self.tracks.append(track)
         del self.merged_track  # uncache merged track
         return track
+
+    def to_type0(self):
+        """Return a type 0 (single track) copy of the file.
+
+        All tracks are merged while global timing and the order of
+        same-tick events are preserved. The original file is not
+        modified.
+        """
+        return to_type0(self)
+
+    def to_type1(self):
+        """Return a type 1 (multi track) copy of the file.
+
+        Channel messages are split into one track per channel. Tempo,
+        time signature and other global meta messages end up in a
+        dedicated first track together with SysEx and channel-less data.
+        The original file is not modified.
+        """
+        return to_type1(self)
 
     def _load(self, infile):
         if self.debug:
