@@ -69,11 +69,11 @@ class PortServer(MultiPort):
         return MultiPort._send(self, message)
 
     def _receive(self, block=True):
-        port = self.accept(block=False)
+        port = self.accept(block=block)
         if port:
             self.ports.append(port)
         self._update_ports()
-        return MultiPort._receive(self)
+        return MultiPort._receive(self, block=block)
 
 
 class SocketPort(BaseIOPort):
@@ -82,6 +82,10 @@ class SocketPort(BaseIOPort):
         self.closed = False
         self._parser = Parser()
         self._messages = self._parser.messages
+        # Number of MIDI bytes read from the socket so far. Exposed so
+        # tests can synchronise on bytes actually being consumed without
+        # relying on socket readiness or fixed sleeps.
+        self._bytes_consumed = 0
 
         if conn is None:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -110,6 +114,7 @@ class SocketPort(BaseIOPort):
                 break
             else:
                 self._parser.feed_byte(ord(byte))
+                self._bytes_consumed += 1
 
     def _send(self, message):
         try:
@@ -123,6 +128,12 @@ class SocketPort(BaseIOPort):
             raise OSError(err.args[1])
 
     def _close(self):
+        # Close the file objects first.  They wrap the socket and keep
+        # the file descriptor alive on their own; closing only the raw
+        # socket would not release the fd, so the peer would never see
+        # the connection hang up (EOF).
+        self._rfile.close()
+        self._wfile.close()
         self._socket.close()
 
 
