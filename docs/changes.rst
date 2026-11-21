@@ -16,6 +16,18 @@ This project uses `Semantic Versioning <https://semver.org>`_.
 Release History
 ---------------
 
+Unreleased
+^^^^^^^^^^
+
+* ``multi_receive()`` (and ``MultiPort``) now poll ports in a stable
+  round-robin order with a configurable per-port message budget per
+  round (``budget`` keyword, default 1). Previously each port was
+  drained completely before moving on, so a port with an endless
+  supply of messages could starve the others indefinitely.
+  ``budget=None`` restores the old draining behavior. Closed ports
+  are now drained of pending messages and then removed from the
+  rotation, and the generator ends once every port has closed.
+
 1.3.3 (2024-10-25)
 ^^^^^^^^^^^^^^^^^^
 

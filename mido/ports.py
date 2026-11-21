@@ -5,7 +5,6 @@
 """
 Useful tools for working with ports
 """
-import random
 import threading
 import time
 
@@ -359,10 +358,11 @@ class EchoPort(BaseIOPort):
 
 
 class MultiPort(BaseIOPort):
-    def __init__(self, ports, yield_ports=False):
+    def __init__(self, ports, yield_ports=False, budget=1):
         BaseIOPort.__init__(self, 'multi')
         self.ports = list(ports)
         self.yield_ports = yield_ports
+        self.budget = budget
 
     def _send(self, message):
         for port in self.ports:
@@ -373,38 +373,82 @@ class MultiPort(BaseIOPort):
     def _receive(self, block=True):
         self._messages.extend(multi_receive(self.ports,
                                             yield_ports=self.yield_ports,
-                                            block=block))
+                                            block=block,
+                                            budget=self.budget))
 
 
-def multi_receive(ports, yield_ports=False, block=True):
+def multi_receive(ports, yield_ports=False, block=True, budget=1):
     """Receive messages from multiple ports.
 
-    Generates messages from ever input port. The ports are polled in
-    random order for fairness, and all messages from each port are
-    yielded before moving on to the next port.
+    Generates messages from every input port. The ports are polled in
+    a stable round-robin order, and each port may yield at most
+    ``budget`` messages per turn before the next port is served. This
+    guarantees that a port with an endless supply of messages cannot
+    starve the others: a pending message on any port is yielded within
+    one full round (at most ``budget * (number of ports - 1)`` messages
+    from the other ports).
+
+    ``budget=None`` removes the limit, restoring the old behavior of
+    draining each port completely before moving on to the next one.
 
     If yield_ports=True, (port, message) is yielded instead of just
     the message.
 
-    If block=False only pending messages will be yielded.
+    If block=False only pending messages are yielded, after a single
+    pass over the ports. Messages beyond a port's budget stay pending
+    and are yielded by the next call.
+
+    Ports are served in the order their messages arrive within each
+    port (per-port order is preserved). A port that closes is kept in
+    the rotation until its pending messages have been drained, and is
+    then safely removed. When every port has closed the generator
+    ends. In blocking mode the loop sleeps between fully idle rounds
+    instead of busy-waiting.
     """
+    if budget is not None and budget < 1:
+        raise ValueError('budget must be None or an integer >= 1')
+
     ports = list(ports)
-    while True:
-        # Make a shuffled copy of the port list.
-        random.shuffle(ports)
+    index = 0
+    idle = 0  # Consecutive port visits that produced no message.
+    while ports:
+        if index >= len(ports):
+            if not block:
+                # One full pass over the active ports is enough.
+                break
+            index = 0
 
-        for port in ports:
-            if not port.closed:
-                for message in port.iter_pending():
-                    if yield_ports:
-                        yield port, message
-                    else:
-                        yield message
+        port = ports[index]
+        count = 0
+        empty = True
+        while budget is None or count < budget:
+            # poll() still returns messages that were pending when the
+            # port closed, so nothing is swallowed here.
+            message = port.poll()
+            if message is None:
+                break
+            empty = False
+            count += 1
+            if yield_ports:
+                yield port, message
+            else:
+                yield message
 
-        if block:
-            sleep()
+        if empty:
+            idle += 1
+            if port.closed:
+                # The port is closed and drained: safe to remove.
+                del ports[index]
+                continue
         else:
-            break
+            idle = 0
+
+        index += 1
+
+        if block and idle >= len(ports):
+            # A full rotation with no messages: don't busy-wait.
+            sleep()
+            idle = 0
 
 
 def multi_iter_pending(ports, yield_ports=False):
